@@ -1,0 +1,24 @@
+{
+  "last_node_id": 1,
+  "last_link_id": 0,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "PLaMoPromptTranslator",
+      "pos": [240, 160],
+      "size": [460, 600],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [{"name": "text", "type": "STRING", "links": null}],
+      "properties": {"Node name for S&R": "PLaMoPromptTranslator"},
+      "widgets_values": ["赤いコートを着た女性が、夕方の駅で電車を待っている。", "en", "", ""]
+    }
+  ],
+  "links": [],
+  "groups": [],
+  "config": {},
+  "extra": {},
+  "version": 0.4
+}
