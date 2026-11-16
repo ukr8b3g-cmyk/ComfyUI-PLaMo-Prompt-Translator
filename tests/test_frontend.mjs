@@ -287,11 +287,13 @@ async function adapterHarness() {
   const languageModule = new SyntheticModule(["default"], function () { this.setExport("default", languages); }, { context });
   const appModule = new SyntheticModule(["app"], function () { this.setExport("app", app); }, { context });
   const apiModule = new SyntheticModule(["api"], function () { this.setExport("api", api); }, { context });
+  const live = new SourceTextModule(await readFile("web/live.mjs", "utf8"), { context });
   const entry = new SourceTextModule(await readFile("web/plamo.js", "utf8"), { context, identifier: "plamo.js" });
   await entry.link((specifier) => {
     if (specifier === "../../scripts/app.js") return appModule;
     if (specifier === "../../scripts/api.js") return apiModule;
     if (specifier.split("?")[0] === "./state.mjs") return state;
+    if (specifier.split("?")[0] === "./live.mjs") return live;
     if (specifier === "./languages.json") return languageModule;
     throw new Error(`Unexpected import: ${specifier}`);
   });
@@ -380,6 +382,52 @@ await (${check.toString()})(harness);
   assert.equal(result.status, 0, [result.error?.message, result.stdout, result.stderr].filter(Boolean).join("\n"));
 }
 
+test("live adapter: debounce, IME, newest input, off and manual output protection", () => {
+  runAdapterCase(async (h) => {
+    const node = h.makeNode(); h.extension.nodeCreated(node);
+    const source = h.field(node, "source_text");
+    const output = h.field(node, "output_text");
+    const wait = () => new Promise(resolve => setTimeout(resolve, 850));
+    assert.equal(node.properties.plamo_live, undefined);
+    h.action(node, "live").dispatch("click"); await h.flush();
+    assert.equal(h.calls.length, 1);
+    source.value = "first"; source.dispatch("input");
+    source.value = "latest"; source.dispatch("input");
+    await wait(); assert.equal(h.calls.length, 1);
+    h.calls[0].reply(h.response(0, "obsolete")); await h.flush();
+    assert.equal(h.values(node).output_text, "");
+    assert.equal(h.calls.length, 2);
+    assert.equal(h.calls[1].body.source_text, "latest");
+    output.value = "manual"; output.dispatch("input");
+    h.calls[1].reply(h.response(1, "do not overwrite")); await h.flush();
+    assert.equal(h.values(node).output_text, "manual");
+    source.dispatch("compositionstart"); source.value = "変換中"; source.dispatch("input");
+    await wait(); assert.equal(h.calls.length, 2);
+    source.dispatch("compositionend"); await wait(); assert.equal(h.calls.length, 3);
+    h.action(node, "live").dispatch("click");
+    h.calls[2].reply(h.response(2, "off result")); await h.flush();
+    assert.equal(h.values(node).output_text, "manual");
+    assert.equal(node.properties.plamo_live, false);
+    source.value = "off edit"; source.dispatch("input"); await wait();
+    assert.equal(h.calls.length, 3);
+  });
+});
+
+test("live adapter: restored ON is idle, completed toggle avoids repeat, removal clears waiting", () => {
+  runAdapterCase(async (h) => {
+    const node = h.makeNode(); node.properties = { plamo_live: true };
+    h.extension.nodeCreated(node); h.extension.loadedGraphNode(node); await h.flush();
+    assert.equal(h.calls.length, 0);
+    h.action(node, "translate").dispatch("click"); await h.flush();
+    h.calls[0].reply(h.response()); await h.flush();
+    h.action(node, "live").dispatch("click"); h.action(node, "live").dispatch("click");
+    await h.flush(); assert.equal(h.calls.length, 1);
+    const source = h.field(node, "source_text"); source.value = "changed"; source.dispatch("input");
+    node.onRemoved(); await new Promise(resolve => setTimeout(resolve, 850));
+    assert.equal(h.calls.length, 1);
+  });
+});
+
 test("entry adapter: registration keeps standard inputs and excludes transient controls from serialization", () => {
   runAdapterCase(async (h) => {
     assert.equal(h.extension.name, "PLaMo.PromptTranslator");
@@ -413,7 +461,7 @@ test("entry adapter: registration keeps standard inputs and excludes transient c
 test("entry adapter: button response uses widget setters and edit callbacks keep the queued values current", () => {
   runAdapterCase(async (h) => {
     const node = h.makeNode(); h.extension.nodeCreated(node);
-    h.action(node, "translate").dispatch("click");
+    h.action(node, "translate").dispatch("click"); await h.flush();
     assert.equal(h.calls.length, 1);
     assert.equal(h.calls[0].path, "/plamo_translator/v1/translate");
     assert.equal(h.calls[0].body.source_text, "赤い服の女性");
@@ -459,7 +507,7 @@ test("entry adapter: configure restores saved readiness and discards an earlier 
     assert.equal(h.values(restored).output_text, "  my manual prompt  ");
     assert.match(h.status(restored).textContent, /^Ready\./);
     assert.equal(h.calls.length, 0);
-    h.action(restored, "translate").dispatch("click");
+    h.action(restored, "translate").dispatch("click"); await h.flush();
     assert.equal(h.calls.length, 1);
     h.extension.beforeConfigureGraph(); restored.configure(saved); h.extension.loadedGraphNode(restored);
     h.calls[0].reply(h.response(0, "late replacement")); await h.flush();

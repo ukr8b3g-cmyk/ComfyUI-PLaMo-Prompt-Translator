@@ -3,6 +3,8 @@ import { api } from "../../scripts/api.js";
 // ComfyUI serves this entry point without caching. Version the dependent module as well.
 import { DEFAULT_CONFIG, LANGUAGES, TranslationSession, inspectState } from "./state.mjs?v=long-text";
 
+import { LiveTranslation } from "./live.mjs?v=1";
+
 const NODE_CLASS = "PLaMoPromptTranslator";
 const INPUT_NAMES = ["source_text", "target_lang", "output_text", "translation_state", "source_lang"];
 const settingIds = {
@@ -18,6 +20,9 @@ let apiToken = "";
 let activeDialog = null;
 
 const strings = {
+  live: ["Live", "自動翻訳"],
+  liveHint: ["Automatically translates after you stop typing. Click again to turn off.", "入力が止まると自動翻訳します。もう一度押すとオフになります。"],
+  liveWaiting: ["Waiting to translate…", "翻訳待ち…"],
   title: ["PLaMo connection settings", "PLaMo 接続設定"],
   source: ["Source", "原文"], target: ["Translate to", "翻訳先"],
   sourceLanguage: ["Source language", "原文の言語"], auto: ["Auto", "自動"],
@@ -108,7 +113,7 @@ function readConfig() {
 
 function settingsChanged() {
   configRevision += 1;
-  for (const controller of controllers) controller.session.settingsChanged();
+  for (const controller of controllers) { controller.cancelLive(); controller.session.settingsChanged(); }
 }
 
 function errorMessage(error) {
@@ -292,6 +297,11 @@ function installNode(node) {
   let internalWrite = 0;
   let restoring = false;
   let copyTimer;
+  let live;
+  let composing = false;
+  let translationConfig = JSON.stringify(readConfig());
+  node.properties ??= {};
+  const liveEnabled = () => node.properties.plamo_live === true;
   const cleanups = [];
 
   function write(name, value) {
@@ -329,7 +339,7 @@ function installNode(node) {
   Object.assign(toolbar.style, columns, { alignItems: "end" });
   const targetControls = element("div");
   Object.assign(targetControls.style, {
-    display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", alignItems: "end", gap: columns.gap,
+    display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto auto", alignItems: "end", gap: columns.gap,
   });
   const editors = element("div", undefined, panel);
   Object.assign(editors.style, columns, { minHeight: "0" });
@@ -370,7 +380,13 @@ function installNode(node) {
     control.addEventListener(tag === "select" ? "change" : "input", () => {
       write(name, control.value);
       observe();
+      if (name === "output_text") live?.cancel();
+      else if (liveEnabled() && !composing) live?.schedule();
     });
+    if (tag === "textarea" && name === "source_text") {
+      control.addEventListener("compositionstart", () => { composing = true; live?.cancel(); });
+      control.addEventListener("compositionend", () => { composing = false; if (liveEnabled()) live?.schedule(); });
+    }
     controls[name] = control;
     return control;
   }
@@ -413,14 +429,30 @@ function installNode(node) {
   }
   const translateButton = addButton("translate", () => {
     if (guardLinks()) return;
-    const config = readConfig();
-    if (!config.model_key) showSettings();
-    const requestId = globalThis.crypto?.randomUUID?.() ?? `plamo-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    void session.translate({ config, token: apiToken, requestId });
+    if (!readConfig().model_key) { showSettings(); return; }
+    live.schedule(true);
   }, targetControls);
+  const liveButton = addButton("live", () => {
+    node.properties.plamo_live = !liveEnabled();
+    live.cancel();
+    session.cancelAcceptance();
+    session.restore();
+    updateLiveButton();
+    node.graph?.incrementVersion?.();
+    if (liveEnabled() && String(read().source_text).trim() &&
+        !(inspectState(read())?.status === "translated" && translationConfig === JSON.stringify(readConfig()))) live.schedule(true);
+  }, targetControls);
+  function updateLiveButton() {
+    liveButton.textContent = `${t("live")} ${liveEnabled() ? "ON" : "OFF"}`;
+    liveButton.setAttribute("aria-pressed", String(liveEnabled()));
+    liveButton.title = t("liveHint");
+    liveButton.style.background = liveEnabled() ? "#b83232" : "var(--comfy-input-bg, #171717)";
+    liveButton.style.color = liveEnabled() ? "#fff" : "var(--input-text, #eee)";
+  }
+  updateLiveButton();
   translateButton.style.background = "#345781";
   translateButton.style.color = "#fff";
-  const cancelButton = addButton("cancel", () => session.cancelAcceptance());
+  const cancelButton = addButton("cancel", () => { live.cancel(); session.cancelAcceptance(); });
   cancelButton.textContent = t("stop");
   addButton("copy", async () => {
     try {
@@ -439,6 +471,7 @@ function installNode(node) {
   });
   const acceptButton = addButton("accept", () => {
     if (guardLinks()) return;
+    live.cancel();
     try { session.acceptCurrent(readConfig().model_key); }
     catch (error) { session.setStatus("error", error); }
   });
@@ -480,6 +513,16 @@ function installNode(node) {
         attached: Boolean(graph && (graph.rootGraph ?? graph) === root && graph.getNodeById(node.id) === node) };
     },
   });
+  live = new LiveTranslation({
+    valid: () => !composing && session.currentContext().attached && Boolean(String(read().source_text).trim()),
+    notify: () => { if (String(read().source_text).trim()) showStatus(t("liveWaiting")); else session.restore(); },
+    run: async () => {
+      if (guardLinks()) return;
+      const config = readConfig();
+      const result = await session.translate({ config, token: apiToken, requestId: globalThis.crypto.randomUUID() });
+      if (result.applied) translationConfig = JSON.stringify(config);
+    },
+  });
   const observe = () => {
     if (!internalWrite && !restoring && !app.configuringGraph) session.observe();
   };
@@ -516,6 +559,7 @@ function installNode(node) {
     return original?.call(this, slot, ...args);
   });
   wrap("configure", (original) => function (...args) {
+    live.cancel();
     session.settingsChanged();
     restoring = true;
     try { return original?.apply(this, args); }
@@ -527,13 +571,15 @@ function installNode(node) {
         this.setSize([Math.max(width, minWidth), Math.max(height, minHeight)]);
       }
       session.restore();
+      updateLiveButton();
     }
   });
   const controller = {
     session,
-    restore: () => session.restore(),
+    restore: () => { live.cancel(); session.restore(); updateLiveButton(); },
+    cancelLive: () => live.cancel(),
     dispose() {
-      session.dispose(); clearTimeout(copyTimer);
+      live.dispose(); session.dispose(); clearTimeout(copyTimer);
       for (const cleanup of cleanups.splice(0)) cleanup();
       controllers.delete(controller); nodeControllers.delete(node);
     },
@@ -561,6 +607,6 @@ app.registerExtension({
   loadedGraphNode(node) { installNode(node); nodeControllers.get(node)?.restore(); },
   beforeConfigureGraph() {
     activeDialog?.close();
-    for (const controller of controllers) controller.session.settingsChanged();
+    for (const controller of controllers) { controller.cancelLive(); controller.session.settingsChanged(); }
   },
 });
