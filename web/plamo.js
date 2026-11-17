@@ -519,7 +519,8 @@ function installNode(node) {
     run: async () => {
       if (guardLinks()) return;
       const config = readConfig();
-      const result = await session.translate({ config, token: apiToken, requestId: globalThis.crypto.randomUUID() });
+      const requestId = globalThis.crypto?.randomUUID?.() ?? `plamo-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const result = await session.translate({ config, token: apiToken, requestId });
       if (result.applied) translationConfig = JSON.stringify(config);
     },
   });

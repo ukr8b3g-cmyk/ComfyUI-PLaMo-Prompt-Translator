@@ -231,7 +231,7 @@ test("empty or oversized source fails before a network request and preserves exi
 // checks do not establish rendering or compatibility with a live ComfyUI build.
 // A child process enables Node's built-in VM module loader without requiring
 // callers to add --experimental-vm-modules to the normal node --test command.
-async function adapterHarness() {
+async function adapterHarness(hasRandomUUID = true) {
   class Element {
     constructor(tag) {
       this.tagName = tag.toUpperCase(); this.style = {}; this.children = [];
@@ -281,7 +281,8 @@ async function adapterHarness() {
     return promise;
   } };
   const context = createContext({ document, navigator: { language: "en-US" },
-    TextEncoder, AbortController, setTimeout, clearTimeout, crypto: { randomUUID: () => "adapter-request" } });
+    TextEncoder, AbortController, setTimeout, clearTimeout,
+    crypto: hasRandomUUID ? { randomUUID: () => "adapter-request" } : {} });
   const state = new SourceTextModule(await readFile("web/state.mjs", "utf8"), { context, identifier: "state.mjs" });
   const languages = JSON.parse(await readFile("web/languages.json", "utf8"));
   const languageModule = new SyntheticModule(["default"], function () { this.setExport("default", languages); }, { context });
@@ -367,12 +368,12 @@ async function adapterHarness() {
     flush: () => new Promise(setImmediate) };
 }
 
-function runAdapterCase(check) {
+function runAdapterCase(check, { hasRandomUUID = true } = {}) {
   const script = `import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { createContext, SourceTextModule, SyntheticModule } from "node:vm";
 ${adapterHarness.toString()}
-const harness = await adapterHarness();
+const harness = await adapterHarness(${JSON.stringify(hasRandomUUID)});
 await (${check.toString()})(harness);
 `;
   const result = spawnSync(process.execPath, ["--experimental-vm-modules", "--input-type=module"], {
@@ -381,6 +382,28 @@ await (${check.toString()})(harness);
   });
   assert.equal(result.status, 0, [result.error?.message, result.stdout, result.stderr].filter(Boolean).join("\n"));
 }
+
+test("manual and Live translation work when LAN HTTP does not expose randomUUID", () => {
+  runAdapterCase(async (h) => {
+    const node = h.makeNode(); h.extension.nodeCreated(node);
+    h.action(node, "translate").dispatch("click"); await h.flush();
+    assert.equal(h.calls.length, 1);
+    assert.match(h.calls[0].body.request_id, /^plamo-[0-9]+-[a-z0-9]+$/);
+    h.calls[0].reply(h.response(0, "manual translation")); await h.flush();
+    assert.equal(h.values(node).output_text, "manual translation");
+
+    h.action(node, "live").dispatch("click");
+    const source = h.field(node, "source_text");
+    source.value = "a new source"; source.dispatch("input");
+    await new Promise(resolve => setTimeout(resolve, 850));
+    assert.equal(h.calls.length, 2);
+    assert.equal(h.calls[1].body.source_text, "a new source");
+    assert.match(h.calls[1].body.request_id, /^plamo-[0-9]+-[a-z0-9]+$/);
+    assert.notEqual(h.calls[1].body.request_id, h.calls[0].body.request_id);
+    h.calls[1].reply(h.response(1, "live translation")); await h.flush();
+    assert.equal(h.values(node).output_text, "live translation");
+  }, { hasRandomUUID: false });
+});
 
 test("live adapter: debounce, IME, newest input, off and manual output protection", () => {
   runAdapterCase(async (h) => {
