@@ -15,7 +15,7 @@ cd custom_nodes
 git clone https://github.com/ukr8b3g-cmyk/ComfyUI-PLaMo-Prompt-Translator.git
 ```
 
-For a manual install, download **Source code (zip)** from [v1.0](https://github.com/ukr8b3g-cmyk/ComfyUI-PLaMo-Prompt-Translator/releases/tag/v1.0). Extract the folder into `custom_nodes` and name it `ComfyUI-PLaMo-Prompt-Translator`. Its `__init__.py` should be directly inside that folder. Restart ComfyUI, reload the browser tab, and search for **PLaMo Prompt Translator** under **PLaMo / Text**.
+For a manual install, download **Source code (zip)** from [the latest release](https://github.com/ukr8b3g-cmyk/ComfyUI-PLaMo-Prompt-Translator/releases/latest). Extract the folder into `custom_nodes` and name it `ComfyUI-PLaMo-Prompt-Translator`. Its `__init__.py` should be directly inside that folder. Restart ComfyUI, reload the browser tab, and search for **PLaMo Prompt Translator** under **PLaMo / Text**.
 
 The node uses the Python environment and `aiohttp` supplied by ComfyUI. It requires Python 3.10 or newer and no extra pip packages. Install LM Studio and download the model separately.
 
@@ -44,6 +44,10 @@ The node uses the Python environment and `aiohttp` supplied by ComfyUI. It requi
 Connection settings apply to all PLaMo nodes. Use **Unload selected model** to free the selected LM Studio model. An API token entered in the dialog stays in that browser tab. The ComfyUI server can also read `COMFYUI_PLAMO_API_TOKEN` from its environment.
 
 Translate the natural-language portion of a prompt first. Add LoRA references, weights, wildcards or prompt-control syntax to the edited result.
+
+## Live translation
+
+Click **Live OFF** beside Translate to enable automatic translation. **Live ON** is red; its tooltip explains the action. Translation starts 800 ms after typing stops, after IME composition completes. Only the newest input is translated next; stale replies do not overwrite edits. Click again to turn it off. Errors are not retried continuously. Run still sends the accepted text without starting translation. The switch is saved per node in the workflow; reopening alone does not start translation.
 
 ## Long text and token limits
 
@@ -81,7 +85,7 @@ PLaMo 3 Translate supports **53 language choices**. Simplified and Traditional C
 | Thai `th` | Tagalog `tl` | Urdu `ur` |
 | Uzbek `uz` | Vietnamese `vi` |  |
 
-[Release v1.0](https://github.com/ukr8b3g-cmyk/ComfyUI-PLaMo-Prompt-Translator/releases/tag/v1.0) · [Change log](CHANGELOG.md) · [API example](examples/translate_api.py) · [References and model license](docs/PROVENANCE.md) · [Forge Neo version](https://github.com/ukr8b3g-cmyk/Forge-Neo-PLaMo-Prompt-Translator)
+[Latest release](https://github.com/ukr8b3g-cmyk/ComfyUI-PLaMo-Prompt-Translator/releases/latest) · [Change log](CHANGELOG.md) · [API example](examples/translate_api.py) · [References and model license](docs/PROVENANCE.md) · [Forge Neo version](https://github.com/ukr8b3g-cmyk/Forge-Neo-PLaMo-Prompt-Translator)
 
 <a id="japanese"></a>
 
@@ -100,7 +104,7 @@ cd custom_nodes
 git clone https://github.com/ukr8b3g-cmyk/ComfyUI-PLaMo-Prompt-Translator.git
 ```
 
-手動で入れる場合は、[v1.0のRelease](https://github.com/ukr8b3g-cmyk/ComfyUI-PLaMo-Prompt-Translator/releases/tag/v1.0) から **Source code (zip)** をダウンロードします。展開したフォルダーを `custom_nodes` に入れ、名前を `ComfyUI-PLaMo-Prompt-Translator` にします。フォルダー直下に `__init__.py` があることを確認してください。ComfyUIを再起動してブラウザーを再読み込みし、**PLaMo / Text** の **PLaMo Prompt Translator** を追加します。
+手動で入れる場合は、[最新リリース](https://github.com/ukr8b3g-cmyk/ComfyUI-PLaMo-Prompt-Translator/releases/latest) から **Source code (zip)** をダウンロードします。展開したフォルダーを `custom_nodes` に入れ、名前を `ComfyUI-PLaMo-Prompt-Translator` にします。フォルダー直下に `__init__.py` があることを確認してください。ComfyUIを再起動してブラウザーを再読み込みし、**PLaMo / Text** の **PLaMo Prompt Translator** を追加します。
 
 Python 3.10以降のComfyUI環境で、同梱の `aiohttp` を使います。追加のpipインストールは不要です。LM Studioとモデルは別途入手してください。
 
@@ -129,6 +133,10 @@ Python 3.10以降のComfyUI環境で、同梱の `aiohttp` を使います。追
 接続設定はすべてのPLaMoノードで共通です。モデルを解放する場合は、接続設定の **選択モデルを解放** を使います。設定画面で入力したAPIトークンは、そのブラウザータブ内だけに保持されます。ComfyUI本体の環境変数 `COMFYUI_PLAMO_API_TOKEN` も使えます。
 
 LoRA参照、重み、ワイルドカードなどを含む場合は、自然文部分を先に翻訳し、必要な構文を訳文へ追加してください。
+
+## 自動翻訳
+
+Translateの隣の **Live OFF／自動翻訳 OFF** を押すと自動翻訳がオンになります。オンは赤色で、マウスを重ねると説明が表示されます。入力停止から800ミリ秒後、日本語IMEの変換確定後に翻訳します。待機するのは最新の原文だけで、古い応答で手編集を上書きしません。もう一度押すとオフになり、エラー時に再試行を繰り返すこともありません。Runは採用済みの訳文を渡す処理のままです。オン・オフはノードごとにワークフローへ保存し、開き直しただけでは翻訳しません。
 
 ## 2,000文字を超える長文とトークン上限
 
@@ -166,13 +174,4 @@ PLaMo 3 Translateの**53の言語選択肢**に対応します。中国語の簡
 | タイ語 `th` | タガログ語 `tl` | ウルドゥー語 `ur` |
 | ウズベク語 `uz` | ベトナム語 `vi` |  |
 
-[v1.0のRelease](https://github.com/ukr8b3g-cmyk/ComfyUI-PLaMo-Prompt-Translator/releases/tag/v1.0) · [変更履歴](CHANGELOG.md) · [APIの使用例](examples/translate_api.py) · [参考資料とモデルのライセンス](docs/PROVENANCE.md) · [Forge Neo版](https://github.com/ukr8b3g-cmyk/Forge-Neo-PLaMo-Prompt-Translator)
-
-## Live translation (current main)
-
-Click **Live OFF** beside Translate to enable automatic translation. **Live ON** is red; its tooltip explains the action. Translation starts 800 ms after typing stops, after IME composition completes. Only the newest input is translated next; stale replies do not overwrite edits. Click again to turn it off. Errors are not retried continuously. Run still sends the accepted text without starting translation. The switch is saved per node in the workflow; reopening alone does not start translation.
-
-
-## 自動翻訳（最新main）
-
-Translateの隣の **Live OFF／自動翻訳 OFF** を押すと自動翻訳がオンになります。オンは赤色で、マウスを重ねると説明が表示されます。入力停止から800ミリ秒後、日本語IMEの変換確定後に翻訳します。待機するのは最新の原文だけで、古い応答で手編集を上書きしません。もう一度押すとオフになり、エラー時に再試行を繰り返すこともありません。Runは採用済みの訳文を渡す処理のままです。オン・オフはノードごとにワークフローへ保存し、開き直しただけでは翻訳しません。
+[最新リリース](https://github.com/ukr8b3g-cmyk/ComfyUI-PLaMo-Prompt-Translator/releases/latest) · [変更履歴](CHANGELOG.md) · [APIの使用例](examples/translate_api.py) · [参考資料とモデルのライセンス](docs/PROVENANCE.md) · [Forge Neo版](https://github.com/ukr8b3g-cmyk/Forge-Neo-PLaMo-Prompt-Translator)

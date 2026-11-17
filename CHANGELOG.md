@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.0
+
+- Added opt-in Live translation. It waits 800 ms after typing stops and starts after IME composition is complete.
+- Live uses the latest input, preserves manual edits when an earlier request finishes, and remembers its setting per node in the workflow.
+- Fixed manual and Live translation when ComfyUI is opened through a LAN address over HTTP.
+
 ## 1.0.0
 
 - First GitHub release for ComfyUI.

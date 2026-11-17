@@ -1,6 +1,6 @@
 [project]
 name = "comfyui-plamo-prompt-translator"
-version = "1.0.0"
+version = "1.1.0"
 description = "Local PLaMo 3 prompt translation for ComfyUI through LM Studio, with 53 language choices and automatic long-text splitting."
 requires-python = ">=3.10"
 dependencies = []
