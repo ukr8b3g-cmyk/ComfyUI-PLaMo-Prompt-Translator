@@ -81,13 +81,19 @@ HTTP模擬サーバーは、LM Studioの公式API形式に合わせた固定応�
 
 `examples/translator-node.json` は翻訳ノードだけの例です。画像生成の出力ノードは含まないため、この例だけをQueueして画像が出ることは期待しないでください。
 
+## Local版のTransformers互換性（2026-11-20）
+
+WindowsのComfyUI_testと同じPythonから、ライブラリを分けた別プロセスで検証しました。Transformers 4.50.3では修正前のモデル読み込みで `dtype` エラーを再現しました。修正後はダウンロード・ロード前に更新を案内し、Local設定から `transformers>=4.56.0` を指定したコマンドをコピーできます。
+
+Transformers 4.56.0と5.23.0では、PFN公式の重みをCPUに読み込み、「窓辺で猫が眠っています。」が両方とも “A cat is sleeping by the window.” に翻訳されました。この確認はCPUでのモデル読み込みと翻訳を対象としています。
+
 ## 自動テストの再実行
 
 パッケージのルートで、ComfyUIが使っているPythonまたはaiohttpの入った開発環境を指定します。
 
 ```text
 python -m unittest discover -s tests -p "test_*.py" -v
-node --test tests/test_frontend.mjs
+node --test tests/*.mjs
 ```
 
 Node.jsは開発テスト用です。このカスタムノードをComfyUIで使うためにNode.jsを追加インストールする必要はありません。

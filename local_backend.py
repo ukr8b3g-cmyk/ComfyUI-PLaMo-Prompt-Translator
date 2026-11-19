@@ -4,6 +4,7 @@ import asyncio
 from contextlib import nullcontext
 import gc
 import hashlib
+from importlib import metadata
 import importlib.util
 import logging
 import os
@@ -19,6 +20,7 @@ from . import plamo_backend as backend
 from .state import make_state
 
 MODEL = "plamo-3-translate-0.8b"
+MIN_TRANSFORMERS = "4.56.0"  # from_pretrained(dtype=...) and DynamicCache(config=...)
 REPOSITORY = "pfnet/" + MODEL
 REVISION = "c5a33c561bc6a4fbac38c3460bbb384e15c0b231"
 # These two Python modules are executed by Transformers. Accept the reviewed PFN code.
@@ -48,9 +50,32 @@ def model_folders():
     return models
 
 
-def missing_packages():
-    return [name for name in ("torch", "transformers", "accelerate", "numba")
-            if importlib.util.find_spec(name) is None]
+def dependency_status():
+    missing = [name for name in ("torch", "transformers", "accelerate", "numba")
+               if importlib.util.find_spec(name) is None]
+    if "transformers" in missing:
+        return missing, None
+
+    from packaging.version import InvalidVersion, Version
+    # ComfyUI may still be running the old module after an in-place pip update.
+    installed = getattr(sys.modules.get("transformers"), "__version__", None)
+    try:
+        installed = installed or metadata.version("transformers")
+        if Version(installed) >= Version(MIN_TRANSFORMERS):
+            return missing, None
+    except (metadata.PackageNotFoundError, InvalidVersion):
+        pass
+    return missing, {"installed": installed or "unknown", "minimum": MIN_TRANSFORMERS}
+
+
+def require_dependencies():
+    missing, update = dependency_status()
+    if update:
+        raise backend.TranslationError("LOCAL_DEPS", f"Installed Transformers: {update['installed']}. "
+                                       f"Local translation requires {MIN_TRANSFORMERS} or newer. "
+                                       "Open Local settings for the update command.")
+    if missing:
+        raise backend.TranslationError("LOCAL_DEPS", "Open Local settings for the installation command.")
 
 
 def shell_command(args):
@@ -93,10 +118,14 @@ def install_command(missing):
 
 
 def setup():
-    missing = missing_packages()
-    command, needs_terminal_uv = install_command(missing)
+    missing, update = dependency_status()
+    requirements = [name for name in missing if name != "transformers"]
+    if update or "transformers" in missing:
+        requirements.append(f"transformers>={MIN_TRANSFORMERS}")
+    command, needs_terminal_uv = install_command(requirements)
     return {"models": list(model_folders()), "loaded": _loaded[0] if _loaded else None,
-            "missing": missing, "install_command": command, "needs_terminal_uv": needs_terminal_uv,
+            "missing": missing, "transformers_update": update,
+            "install_command": command, "needs_terminal_uv": needs_terminal_uv,
             "install_shell": "windows" if os.name == "nt" else "sh",
             "directory": str(roots()[0])}
 
@@ -143,8 +172,7 @@ def load(key):
     global _loaded
     if _loaded is not None and _loaded[0] == key:
         return _loaded[1:]
-    if missing_packages():
-        raise backend.TranslationError("LOCAL_DEPS", "Open Local settings for the installation command.")
+    require_dependencies()
     path = model_folders().get(key)
     if path is None:
         raise backend.TranslationError("LOCAL_MISSING", "Choose or download a model in Local settings.")
@@ -212,8 +240,7 @@ async def operate(action, body, report=None):
         text, target, source = body.get("source_text"), body.get("target_lang"), body.get("source_lang", "auto")
         backend.validate_source(text, target, source)
         if _loaded is None or _loaded[0] != config.model_key:
-            if missing_packages():
-                raise backend.TranslationError("LOCAL_DEPS", "Open Local settings for the installation command.")
+            require_dependencies()
             if config.model_key not in model_folders():
                 if config.model_key != MODEL:
                     raise backend.TranslationError("LOCAL_MISSING", "Choose an installed model in Local settings.")

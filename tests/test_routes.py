@@ -46,13 +46,59 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
     async def test_local_setup_offers_only_missing_dependencies(self):
         local = importlib.import_module(PACKAGE + ".local_backend")
         with patch.object(local, "roots", return_value=[Path("models/LLM")]), \
-             patch.object(local, "missing_packages", return_value=["numba"]), \
+             patch.object(local, "dependency_status", return_value=(["numba"], None)), \
              patch.object(local.importlib.util, "find_spec", return_value=object()):
             response = await self.client.post(BASE + "/local/setup", json={})
             data = await response.json()
         self.assertEqual(data["missing"], ["numba"])
         flags = ["-s"] if sys.flags.no_user_site else []
         self.assertEqual(data["install_command"], local.shell_command([sys.executable, *flags, "-m", "pip", "install", "numba"]))
+
+    async def test_transformers_version_in_setup_and_translation(self):
+        local = importlib.import_module(PACKAGE + ".local_backend")
+        for installed, compatible in [("4.50.3", False), ("4.56.0rc1", False),
+                                      ("4.56.0", True), ("5.23.0", True)]:
+            with self.subTest(installed=installed), ExitStack() as stack:
+                stack.enter_context(patch.dict(sys.modules, {"transformers": types.SimpleNamespace(__version__=installed)}))
+                stack.enter_context(patch.object(local.importlib.util, "find_spec", return_value=object()))
+                stack.enter_context(patch.object(local, "roots", return_value=[Path("models/LLM")]))
+                stack.enter_context(patch.object(local, "_loaded", None))
+                download = stack.enter_context(patch.object(local, "download"))
+                load = stack.enter_context(patch.object(local, "load"))
+                response = await self.client.post(BASE + "/local/setup", json={})
+                data = await response.json()
+                self.assertEqual(data["missing"], [])
+                if compatible:
+                    self.assertIsNone(data["transformers_update"])
+                    self.assertEqual(data["install_command"], "")
+                    continue
+                self.assertEqual(data["transformers_update"], {"installed": installed, "minimum": "4.56.0"})
+                self.assertIn("transformers>=4.56.0", data["install_command"])
+                response = await self.client.post(BASE + "/local/translate", json={
+                    "config": {"model_key": local.MODEL}, "source_text": "A cat.", "target_lang": "ja"})
+                error = await response.json()
+                self.assertEqual(error["code"], "LOCAL_DEPS")
+                self.assertIn(installed, error["message"])
+                download.assert_not_called()
+                load.assert_not_called()
+
+    def test_local_transformers_loading_api(self):
+        local = importlib.import_module(PACKAGE + ".local_backend")
+        if any(importlib.util.find_spec(name) is None for name in ("torch", "transformers")):
+            self.skipTest("Transformers and PyTorch are optional for the LM Studio node")
+        if local.dependency_status()[1]:
+            self.skipTest("Installed Transformers requires an update for the Local node")
+        import torch
+        from transformers import DynamicCache, LlamaConfig, LlamaForCausalLM
+        config = LlamaConfig(vocab_size=32, hidden_size=16, intermediate_size=32, num_hidden_layers=1,
+                             num_attention_heads=2, num_key_value_heads=1)
+        with TemporaryDirectory() as path:
+            LlamaForCausalLM(config).save_pretrained(path)
+            model = LlamaForCausalLM.from_pretrained(path, config=config, dtype=torch.float32, local_files_only=True)
+            cache = DynamicCache(config=config)
+            with torch.inference_mode():
+                model(input_ids=torch.tensor([[1, 2]]), past_key_values=cache, use_cache=True)
+            self.assertEqual(cache.get_seq_length(), 2)
 
     def test_install_command_targets_the_running_interpreter_without_pip(self):
         local = importlib.import_module(PACKAGE + ".local_backend")
@@ -83,7 +129,7 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
         with TemporaryDirectory() as tmp:
             script = Path(tmp, "echo_args.py")
             script.write_text("import json, sys\nprint('ARGS=' + json.dumps(sys.argv[1:]))", encoding="utf-8")
-            for value in ["numba", "C:/User's Env/%PATH%/!TEMP!/$env/&/model"]:
+            for value in ["numba", "transformers>=4.56.0", "C:/User's Env/%PATH%/!TEMP!/$env/&/model"]:
                 command = local.shell_command([sys.executable, "-B", script.name, value])
                 for shell in shells:
                     with self.subTest(shell=shell[0], value=value):
@@ -108,7 +154,7 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
             local._loaded = (key, None, None)
             return local._loaded[1:]
         with ExitStack() as s:
-            for name, value in {"_loaded": None, "missing_packages": lambda: [], "model_folders": lambda: {},
+            for name, value in {"_loaded": None, "dependency_status": lambda: ([], None), "model_folders": lambda: {},
                                 "load": load, "generate": lambda *args: ("A cat by the window", True)}.items():
                 s.enter_context(patch.object(local, name, value))
             download = s.enter_context(patch.object(local, "download"))
@@ -119,7 +165,7 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
     async def test_local_missing_dependencies_or_custom_model_do_not_download(self):
         local = importlib.import_module(PACKAGE + ".local_backend")
         for missing, key, expected in [(["numba"], local.MODEL, "LOCAL_DEPS"), ([], "custom", "LOCAL_MISSING")]:
-            with patch.object(local, "missing_packages", return_value=missing), \
+            with patch.object(local, "dependency_status", return_value=(missing, None)), \
                  patch.object(local, "model_folders", return_value={}), patch.object(local, "download") as download:
                 response = await self.client.post(BASE + "/local/translate", json={
                     "config": {"model_key": key}, "source_text": "窓辺の猫", "target_lang": "en"})

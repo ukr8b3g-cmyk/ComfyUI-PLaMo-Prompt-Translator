@@ -36,6 +36,7 @@ const strings = {
   terminalUv: ["This command requires uv. In ComfyUI Desktop, use the built-in terminal.", "このコマンドにはuvが必要です。ComfyUI Desktopでは内蔵ターミナルを使ってください。"],
   afterInstall: ["When installation finishes, restart ComfyUI and click Translate.", "インストールが終わったらComfyUIを再起動し、「翻訳」を押してください。"],
   missingPackages: ["Waiting for installation", "インストール待ち"],
+  updateTransformers: ["Update Transformers", "Transformersを更新"],
   packagesReady: ["Required packages installed.", "必要なパッケージはインストール済みです。"],
   recheckSetup: ["Check setup again", "状態を再確認"],
   download: ["Download model (1.78 GB)", "モデルをダウンロード（1.78 GB）"],
@@ -50,7 +51,7 @@ const strings = {
   localNew: ["Model not downloaded. Translate will download and load it.", "モデルは未ダウンロードです。翻訳時にダウンロードして読み込みます。"],
   localLoaded: ["Model loaded", "モデルはロード済みです"],
   localNotFound: ["Model folder not found. Choose an available model.", "モデルフォルダーが見つかりません。利用可能なモデルを選んでください。"],
-  LOCAL_DEPS: ["Missing packages. Open ⚙ to copy the install command.", "依存パッケージが不足。歯車で導入コマンドをコピーできます。"],
+  LOCAL_DEPS: ["Open ⚙ for the required package install or update.", "歯車で必要なパッケージと導入・更新コマンドを確認してください。"],
   LOCAL_MISSING: ["Open ⚙ to choose or download a model.", "歯車でモデルを選択またはダウンロードしてください。"],
   LOCAL_CODE: ["Model code does not match the supported PFN release.", "モデル定義が対応するPFN公式版と一致しません。"],
   LOCAL_INCOMPLETE: ["The existing model folder is incomplete. Check its files.", "既存のモデルフォルダーに不足ファイルがあります。"],
@@ -418,9 +419,10 @@ function showSettings(local = false) {
       note.textContent = data.directory;
       modelRows = data.models.map(key => ({key, loaded_instance_count: Number(data.loaded === key)}));
       fillModels(modelSelect.value || config.model_key);
-      const missing = data.missing.length > 0;
-      commandField.parentElement.hidden = !missing;
-      commandField.parentElement.style.display = missing ? "grid" : "none";
+      const update = data.transformers_update;
+      const needsInstall = Boolean(data.install_command);
+      commandField.parentElement.hidden = !needsInstall;
+      commandField.parentElement.style.display = needsInstall ? "grid" : "none";
       let command = data.install_command;
       let shell = data.install_shell || (command.startsWith("& ") ? "powershell" : "sh");
       // Already-running servers still send the earlier PowerShell-only pip command.
@@ -433,14 +435,17 @@ function showSettings(local = false) {
       const terminalHint = { windows: "runWindows", powershell: "runPowerShell" }[shell] || "runTerminal";
       installSteps = [data.needs_terminal_uv && t("terminalUv"), t(terminalHint), t("afterInstall")].filter(Boolean).join(" ");
       copyCommand.textContent = t("copyInstall");
-      copyCommand.hidden = !missing;
-      installHint.hidden = !missing;
-      installHint.textContent = missing ? installSteps : "";
+      copyCommand.hidden = !needsInstall;
+      installHint.hidden = !needsInstall;
+      installHint.textContent = needsInstall ? installSteps : "";
       downloadButton.hidden = data.models.includes(LOCAL_MODEL);
       unloadButton.disabled = !data.loaded;
       unloadButton.textContent = data.loaded ? t("localUnload") + " · " + data.loaded : t("localUnload");
       showLocalModel();
-      status.textContent = missing ? t("missingPackages") + " · " + data.missing.join(", ") : t("packagesReady");
+      const issues = [];
+      if (update) issues.push(t("updateTransformers") + " · " + update.installed + " → ≥" + update.minimum);
+      if (data.missing.length) issues.push(t("missingPackages") + " · " + data.missing.join(", "));
+      status.textContent = issues.join("\n") || t("packagesReady");
     } catch (error) { status.textContent = errorMessage(error); }
     finally { refreshButton.disabled = false; downloadButton.disabled = false; operation = false; }
   }
