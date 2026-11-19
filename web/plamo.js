@@ -6,6 +6,11 @@ import { DEFAULT_CONFIG, LANGUAGES, TranslationSession, inspectState } from "./s
 import { LiveTranslation } from "./live.mjs?v=1";
 
 const NODE_CLASS = "PLaMoPromptTranslator";
+const LOCAL_CLASS = "PLaMoPromptTranslatorLocal";
+const LOCAL_MODEL = "plamo-3-translate-0.8b";
+const localSettingIds = {
+  model_key: "PLaMo.Local.Model", max_tokens: "PLaMo.Local.MaxTokens", timeout_seconds: "PLaMo.Local.Timeout",
+};
 const INPUT_NAMES = ["source_text", "target_lang", "output_text", "translation_state", "source_lang"];
 const settingIds = {
   url: "PLaMo.Translator.URL",
@@ -15,11 +20,43 @@ const settingIds = {
 };
 const controllers = new Set();
 const nodeControllers = new WeakMap();
-let configRevision = 0;
+const revisions = { local: 0, studio: 0 };
 let apiToken = "";
 let activeDialog = null;
 
 const strings = {
+  localTitle: ["Local model settings", "ローカルモデル設定"],
+  copyInstall: ["Copy install command", "インストールコマンドをコピー"],
+  installCommand: ["Install command", "インストールコマンド"],
+  commandCopied: ["✓ Command copied", "✓ コマンドをコピーしました"],
+  manualCopy: ["Copy failed. Select and copy the command above.", "コピーできませんでした。上のコマンドを選択してコピーしてください。"],
+  runPowerShell: ["Paste into PowerShell on the computer running ComfyUI and press Enter.", "ComfyUIが動いているPCのPowerShellに貼り付け、Enterを押してください。"],
+  runWindows: ["Paste into Command Prompt or PowerShell on the computer running ComfyUI and press Enter.", "ComfyUIが動いているPCのコマンドプロンプトまたはPowerShellに貼り付け、Enterを押してください。"],
+  runTerminal: ["Paste into a terminal on the computer running ComfyUI and press Enter.", "ComfyUIが動いているPCのターミナルに貼り付け、Enterを押してください。"],
+  terminalUv: ["This command requires uv. In ComfyUI Desktop, use the built-in terminal.", "このコマンドにはuvが必要です。ComfyUI Desktopでは内蔵ターミナルを使ってください。"],
+  afterInstall: ["When installation finishes, restart ComfyUI and click Translate.", "インストールが終わったらComfyUIを再起動し、「翻訳」を押してください。"],
+  missingPackages: ["Waiting for installation", "インストール待ち"],
+  packagesReady: ["Required packages installed.", "必要なパッケージはインストール済みです。"],
+  recheckSetup: ["Check setup again", "状態を再確認"],
+  download: ["Download model (1.78 GB)", "モデルをダウンロード（1.78 GB）"],
+  downloading: ["Downloading the PFN model…", "PFN公式モデルをダウンロード中…"],
+  preparing: ["Checking local model…", "ローカルモデルを確認中…"],
+  loading: ["Loading model into memory…", "モデルをメモリに読み込み中…"],
+  LOCAL_DOWNLOAD_FAILED: ["Download failed. Check the internet connection and free disk space, then press Translate again.", "ダウンロードに失敗しました。インターネット接続と空き容量を確認し、もう一度「翻訳」を押してください。"],
+  localSelect: ["Choose a model folder", "モデルフォルダーを選択"],
+  localUnload: ["Unload model", "モデルを解放"],
+  localCancelled: ["Result discarded. Local inference may still be running.", "結果の受け取りを中止しました。ローカル推論は続く場合があります。"],
+  localAvailable: ["Model downloaded · loads on Translate.", "モデルはダウンロード済み・未ロードです。翻訳時に読み込みます。"],
+  localNew: ["Model not downloaded. Translate will download and load it.", "モデルは未ダウンロードです。翻訳時にダウンロードして読み込みます。"],
+  localLoaded: ["Model loaded", "モデルはロード済みです"],
+  localNotFound: ["Model folder not found. Choose an available model.", "モデルフォルダーが見つかりません。利用可能なモデルを選んでください。"],
+  LOCAL_DEPS: ["Missing packages. Open ⚙ to copy the install command.", "依存パッケージが不足。歯車で導入コマンドをコピーできます。"],
+  LOCAL_MISSING: ["Open ⚙ to choose or download a model.", "歯車でモデルを選択またはダウンロードしてください。"],
+  LOCAL_CODE: ["Model code does not match the supported PFN release.", "モデル定義が対応するPFN公式版と一致しません。"],
+  LOCAL_INCOMPLETE: ["The existing model folder is incomplete. Check its files.", "既存のモデルフォルダーに不足ファイルがあります。"],
+  LOCAL_BUSY: ["Another local model operation is running.", "ローカルモデルを処理中です。"],
+  LOCAL_TIMEOUT: ["Local translation timed out. Increase the timeout in ⚙.", "時間切れ。歯車でタイムアウトを延ばしてください。"],
+  LOCAL_ERROR: ["Local model operation failed. See the ComfyUI console.", "ローカルモデルの処理に失敗。ComfyUIのコンソールを確認してください。"],
   live: ["Live", "自動翻訳"],
   liveHint: ["Automatically translates after you stop typing. Click again to turn off.", "入力が止まると自動翻訳します。もう一度押すとオフになります。"],
   liveWaiting: ["Waiting to translate…", "翻訳待ち…"],
@@ -84,10 +121,11 @@ const strings = {
 };
 
 function languageIndex() {
-  let locale;
-  try { locale = app.extensionManager?.setting?.get("Comfy.Locale"); } catch { /* early startup */ }
-  if (!locale || locale === "auto") locale = navigator.language;
-  return String(locale).toLowerCase().startsWith("ja") ? 1 : 0;
+  try {
+    return /^ja(?:[-_]|$)/i.test(getSetting("Comfy.Locale") ?? "") ? 1 : 0;
+  } catch {
+    return 0; // The ComfyUI settings service may still be starting.
+  }
 }
 
 function t(key) { return strings[key]?.[languageIndex()] ?? key; }
@@ -111,9 +149,11 @@ function readConfig() {
   }));
 }
 
-function settingsChanged() {
-  configRevision += 1;
-  for (const controller of controllers) { controller.cancelLive(); controller.session.settingsChanged(); }
+function settingsChanged(local = false) {
+  revisions[local ? "local" : "studio"]++;
+  for (const controller of controllers) {
+    if (controller.local === local) { controller.cancelLive(); controller.session.settingsChanged(); }
+  }
 }
 
 function errorMessage(error) {
@@ -122,26 +162,63 @@ function errorMessage(error) {
   return strings[code] ? t(code) : message || t("error");
 }
 
-async function requestJson(path, body) {
+async function readTranslation(response, onPhase) {
+  let buffer = "";
+  let result;
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      const lines = (buffer + chunk.value).split("\n");
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (!line) continue;
+        const message = JSON.parse(line);
+        if (message.phase) onPhase(message.phase);
+        else if (message.result) result = message.result;
+      }
+    }
+  } finally { reader.releaseLock(); }
+  if (!result || buffer.trim()) throw new Error("Incomplete translation response.");
+  return result;
+}
+
+async function requestJson(path, body, onPhase) {
   const abort = new AbortController();
   const seconds = Number(body.config?.timeout_seconds) || 60;
-  const timer = setTimeout(() => abort.abort(), (Math.min(600, Math.max(1, seconds)) + 8) * 1000);
+  const timeout = (Math.min(600, Math.max(1, seconds)) + 8) * 1000;
+  const downloadTimeout = 1800000;
+  let timer = setTimeout(() => abort.abort(), path === "local/download" ? downloadTimeout : timeout);
   try {
     const response = await api.fetchApi(`/plamo_translator/v1/${path}`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST", headers: { "Content-Type": "application/json", ...(onPhase ? {Accept: "application/x-ndjson"} : {}) },
       body: JSON.stringify(body), signal: abort.signal,
     });
     let result;
-    try { result = await response.json(); }
-    catch { throw Object.assign(new Error(`Invalid server response (HTTP ${response.status}).`), { code: "INVALID_RESPONSE" }); }
-    if (!response.ok) {
+    try {
+      if (onPhase && response.headers.get("Content-Type")?.startsWith("application/x-ndjson")) {
+        result = await readTranslation(response, phase => {
+          clearTimeout(timer);
+          timer = setTimeout(() => abort.abort(), phase === "downloading" ? downloadTimeout : timeout);
+          onPhase(phase);
+        });
+      } else result = await response.json();
+    } catch (error) {
+      if (abort.signal.aborted) throw error;
+      throw Object.assign(new Error(`Invalid server response (HTTP ${response.status}).`), { code: "INVALID_RESPONSE" });
+    }
+    if (!response.ok || result?.code) {
       throw Object.assign(new Error(typeof result?.message === "string" ? result.message : `HTTP ${response.status}`), {
         code: typeof result?.code === "string" ? result.code : "HTTP_ERROR",
       });
     }
     return result;
   } catch (error) {
-    if (error?.name === "AbortError") throw Object.assign(new Error(t("TIMEOUT")), { code: "TIMEOUT" });
+    if (abort.signal.aborted) {
+      const code = path.startsWith("local/") ? "LOCAL_TIMEOUT" : "TIMEOUT";
+      throw Object.assign(new Error(t(code)), {code});
+    }
     throw error;
   } finally { clearTimeout(timer); }
 }
@@ -153,18 +230,35 @@ function element(tag, text, parent) {
   return node;
 }
 
-function showSettings() {
+async function copyText(text, parent = document.body) {
+  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
+  const temporary = element("textarea", undefined, parent);
+  temporary.value = text;
+  Object.assign(temporary.style, { position: "fixed", left: "-9999px" });
+  try {
+    temporary.select();
+    if (!document.execCommand("copy")) throw new Error("copy_error");
+  } finally { temporary.remove(); }
+}
+
+function localConfig() {
+  return { model_key: getSetting(localSettingIds.model_key) || LOCAL_MODEL,
+    max_tokens: Number(getSetting(localSettingIds.max_tokens)) || 512,
+    timeout_seconds: Number(getSetting(localSettingIds.timeout_seconds)) || 180 };
+}
+
+function showSettings(local = false) {
   if (activeDialog) { activeDialog.focus(); return; }
   const dialog = element("dialog");
   activeDialog = dialog;
-  dialog.setAttribute("aria-label", t("title"));
+  dialog.setAttribute("aria-label", t(local ? "localTitle" : "title"));
   Object.assign(dialog.style, {
     width: "min(540px, calc(100vw - 48px))", maxHeight: "85vh", overflowY: "auto",
     padding: "22px", border: "1px solid var(--border-color, #666)", borderRadius: "10px",
     color: "var(--input-text, #eee)", background: "var(--comfy-menu-bg, #252525)",
     font: "14px system-ui, sans-serif", boxSizing: "border-box",
   });
-  const heading = element("h2", t("title"), dialog);
+  const heading = element("h2", t(local ? "localTitle" : "title"), dialog);
   heading.style.margin = "0 0 12px";
   const note = element("p", t("settingsNote"), dialog);
   note.style.lineHeight = "1.55";
@@ -174,13 +268,14 @@ function showSettings() {
   let open = true;
   let operation = false;
   let modelRows = [];
-  const config = readConfig();
+  const config = local ? localConfig() : readConfig();
 
   function field(key, label, type = "text") {
     const wrapper = element("label", label, form);
     Object.assign(wrapper.style, { display: "grid", gap: "6px", marginBottom: "12px" });
-    const control = element(type === "select" ? "select" : "input", undefined, wrapper);
-    if (type !== "select") control.type = type;
+    const tag = ["select", "textarea"].includes(type) ? type : "input";
+    const control = element(tag, undefined, wrapper);
+    if (tag === "input") control.type = type;
     Object.assign(control.style, {
       width: "100%", boxSizing: "border-box", padding: "8px", borderRadius: "4px",
       color: "var(--input-text, #eee)", background: "var(--comfy-input-bg, #171717)",
@@ -190,7 +285,7 @@ function showSettings() {
     control.addEventListener("input", () => { draftRevision += 1; });
     return control;
   }
-  field("url", t("url")).value = config.url;
+  if (!local) field("url", t("url")).value = config.url;
   const modelSelect = field("model_key", t("model"), "select");
   const modelHint = element("p", t("modelsHint"), form);
   modelHint.style.fontSize = "12px";
@@ -202,8 +297,8 @@ function showSettings() {
     const option = element("option", String(count), tokenSelect); option.value = String(count);
   }
   tokenSelect.value = String(config.max_tokens);
-  const tokenInput = field("token", t("token"), "password");
-  tokenInput.autocomplete = "off"; tokenInput.value = apiToken;
+  const tokenInput = local ? null : field("token", t("token"), "password");
+  if (tokenInput) { tokenInput.autocomplete = "off"; tokenInput.value = apiToken; }
   const status = element("p", "", form);
   status.setAttribute("role", "status"); status.setAttribute("aria-live", "polite");
   Object.assign(status.style, { whiteSpace: "pre-wrap", overflowWrap: "anywhere", lineHeight: "1.5" });
@@ -218,19 +313,19 @@ function showSettings() {
   }
   function draftConfig() {
     return {
-      url: controls.url.value, model_key: modelSelect.value,
+      ...(local ? {} : {url: controls.url.value}), model_key: modelSelect.value,
       timeout_seconds: Number(timeout.value), max_tokens: Number(tokenSelect.value),
     };
   }
   function fillModels(selection) {
     modelSelect.replaceChildren();
-    const empty = element("option", t("select"), modelSelect); empty.value = "";
+    const empty = element("option", t(local ? "localSelect" : "select"), modelSelect); empty.value = "";
     if (selection && !modelRows.some((row) => row.key === selection)) {
       const option = element("option", `${selection} (${t("savedModel")})`, modelSelect);
       option.value = selection;
     }
     for (const row of modelRows) {
-      const loaded = row.loaded_instance_count > 0 ? ` · ${t("loaded")}` : "";
+      const loaded = row.loaded_instance_count > 0 ? ` · ${t(local ? "localLoaded" : "loaded")}` : "";
       const option = element("option", `${row.display_name || row.key}${loaded}`, modelSelect);
       option.value = row.key;
     }
@@ -265,8 +360,90 @@ function showSettings() {
       refreshButton.disabled = false; unloadButton.disabled = false;
     }
   }
-  const refreshButton = button(t("refresh"), () => void operate("models"));
-  const unloadButton = button(t("unload"), () => void operate("unload"));
+  const refreshButton = button(t(local ? "recheckSetup" : "refresh"), () => void (local ? localAction("setup") : operate("models")));
+  const unloadButton = button(t("unload"), () => void (local ? localAction("unload") : operate("unload")));
+  const downloadButton = local ? button(t("download"), () => void localAction("download")) : null;
+  let commandField, copyCommand, installHint;
+  let installSteps = "";
+  function showLocalModel() {
+    const key = modelSelect.value;
+    const row = modelRows.find(item => item.key === key);
+    if (row?.loaded_instance_count) modelHint.textContent = t("localLoaded");
+    else if (row) modelHint.textContent = t("localAvailable");
+    else if (key === LOCAL_MODEL) modelHint.textContent = t("localNew");
+    else modelHint.textContent = t(key ? "localNotFound" : "localSelect");
+  }
+  if (local) {
+    note.textContent = "";
+    note.style.overflowWrap = "anywhere";
+    modelHint.textContent = "";
+    modelSelect.addEventListener("change", showLocalModel);
+    commandField = field("command", t("installCommand"), "textarea");
+    commandField.readOnly = true;
+    commandField.rows = 2;
+    form.insertBefore(commandField.parentElement, buttons);
+    commandField.parentElement.hidden = true;
+    commandField.parentElement.style.display = "none";
+    copyCommand = button(t("copyInstall"), async () => {
+      try {
+        await copyText(commandField.value, dialog);
+        copyCommand.textContent = t("commandCopied");
+        installHint.textContent = installSteps;
+      } catch {
+        copyCommand.textContent = t("copyInstall");
+        commandField.focus(); commandField.select();
+        installHint.textContent = t("manualCopy") + " " + installSteps;
+      }
+    });
+    form.insertBefore(copyCommand, buttons);
+    copyCommand.setAttribute("aria-live", "polite");
+    installHint = element("p", "", form);
+    installHint.setAttribute("aria-live", "polite");
+    form.insertBefore(installHint, buttons);
+    installHint.hidden = true;
+    copyCommand.hidden = true;
+    downloadButton.hidden = true;
+    unloadButton.disabled = true;
+  }
+  async function localAction(action) {
+    if (operation) return;
+    operation = true;
+    refreshButton.disabled = true;
+    downloadButton.disabled = true;
+    unloadButton.disabled = true;
+    status.textContent = t(action === "download" ? "downloading" : "checking");
+    try {
+      const data = await requestJson("local/" + action, {});
+      if (!open) return;
+      note.textContent = data.directory;
+      modelRows = data.models.map(key => ({key, loaded_instance_count: Number(data.loaded === key)}));
+      fillModels(modelSelect.value || config.model_key);
+      const missing = data.missing.length > 0;
+      commandField.parentElement.hidden = !missing;
+      commandField.parentElement.style.display = missing ? "grid" : "none";
+      let command = data.install_command;
+      let shell = data.install_shell || (command.startsWith("& ") ? "powershell" : "sh");
+      // Already-running servers still send the earlier PowerShell-only pip command.
+      if (shell === "powershell" && /^& '[\w.:/\\-]+' (?:-s )?-m pip install [\w -]+$/.test(command)) {
+        command = command.replace(/^& '([^']+)' /, "$1 ");
+        shell = "windows";
+      }
+      commandField.value = command;
+      commandField.rows = Math.max(2, command.split("\n").length);
+      const terminalHint = { windows: "runWindows", powershell: "runPowerShell" }[shell] || "runTerminal";
+      installSteps = [data.needs_terminal_uv && t("terminalUv"), t(terminalHint), t("afterInstall")].filter(Boolean).join(" ");
+      copyCommand.textContent = t("copyInstall");
+      copyCommand.hidden = !missing;
+      installHint.hidden = !missing;
+      installHint.textContent = missing ? installSteps : "";
+      downloadButton.hidden = data.models.includes(LOCAL_MODEL);
+      unloadButton.disabled = !data.loaded;
+      unloadButton.textContent = data.loaded ? t("localUnload") + " · " + data.loaded : t("localUnload");
+      showLocalModel();
+      status.textContent = missing ? t("missingPackages") + " · " + data.missing.join(", ") : t("packagesReady");
+    } catch (error) { status.textContent = errorMessage(error); }
+    finally { refreshButton.disabled = false; downloadButton.disabled = false; operation = false; }
+  }
   const saveButton = button(t("save"), null, "submit");
   button(t("close"), () => dialog.close());
   form.addEventListener("submit", async (event) => {
@@ -275,23 +452,28 @@ function showSettings() {
     saveButton.disabled = true;
     try {
       const draft = draftConfig();
-      for (const [key, id] of Object.entries(settingIds)) await setSetting(id, draft[key]);
-      if (apiToken !== tokenInput.value) { apiToken = tokenInput.value; settingsChanged(); }
+      for (const [key, id] of Object.entries(local ? localSettingIds : settingIds)) await setSetting(id, draft[key]);
+      if (tokenInput && apiToken !== tokenInput.value) { apiToken = tokenInput.value; settingsChanged(); }
       status.textContent = t("saved");
     } catch (error) { status.textContent = errorMessage(error); }
     finally { saveButton.disabled = false; }
   });
   dialog.addEventListener("close", () => {
-    open = false; tokenInput.value = "";
+    open = false; if (tokenInput) tokenInput.value = "";
     if (activeDialog === dialog) activeDialog = null;
     dialog.remove();
   }, { once: true });
   document.body.append(dialog);
   dialog.showModal();
+  if (local) void localAction("setup");
 }
 
 function installNode(node) {
-  if ((node.comfyClass ?? node.constructor?.comfyClass) !== NODE_CLASS || nodeControllers.has(node)) return;
+  const nodeClass = node.comfyClass ?? node.constructor?.comfyClass;
+  if (![NODE_CLASS, LOCAL_CLASS].includes(nodeClass) || nodeControllers.has(node)) return;
+  const local = nodeClass === LOCAL_CLASS;
+  let localPhase = "preparing";
+  const configForNode = local ? localConfig : readConfig;
   const widgets = Object.fromEntries(INPUT_NAMES.map((name) => [name, node.widgets?.find((widget) => widget.name === name)]));
   if (Object.values(widgets).some((widget) => !widget)) return;
   let internalWrite = 0;
@@ -299,7 +481,7 @@ function installNode(node) {
   let copyTimer;
   let live;
   let composing = false;
-  let translationConfig = JSON.stringify(readConfig());
+  let translationConfig = JSON.stringify(configForNode());
   node.properties ??= {};
   const liveEnabled = () => node.properties.plamo_live === true;
   const cleanups = [];
@@ -429,7 +611,7 @@ function installNode(node) {
   }
   const translateButton = addButton("translate", () => {
     if (guardLinks()) return;
-    if (!readConfig().model_key) { showSettings(); return; }
+    if (!configForNode().model_key) { showSettings(local); return; }
     live.schedule(true);
   }, targetControls);
   const liveButton = addButton("live", () => {
@@ -440,7 +622,7 @@ function installNode(node) {
     updateLiveButton();
     node.graph?.incrementVersion?.();
     if (liveEnabled() && String(read().source_text).trim() &&
-        !(inspectState(read())?.status === "translated" && translationConfig === JSON.stringify(readConfig()))) live.schedule(true);
+        !(inspectState(read())?.status === "translated" && translationConfig === JSON.stringify(configForNode()))) live.schedule(true);
   }, targetControls);
   function updateLiveButton() {
     liveButton.textContent = `${t("live")} ${liveEnabled() ? "ON" : "OFF"}`;
@@ -456,15 +638,7 @@ function installNode(node) {
   cancelButton.textContent = t("stop");
   addButton("copy", async () => {
     try {
-      const text = widgets.output_text.value;
-      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
-      else {
-        const temporary = element("textarea"); temporary.value = text;
-        Object.assign(temporary.style, { position: "fixed", left: "-9999px" });
-        document.body.append(temporary); temporary.select();
-        const copied = document.execCommand("copy"); temporary.remove();
-        if (!copied) throw new Error("copy_error");
-      }
+      await copyText(widgets.output_text.value);
       showStatus(t("copied"));
       clearTimeout(copyTimer); copyTimer = setTimeout(() => render(session.status, session), 1600);
     } catch { showStatus(t("copy_error")); }
@@ -472,10 +646,11 @@ function installNode(node) {
   const acceptButton = addButton("accept", () => {
     if (guardLinks()) return;
     live.cancel();
-    try { session.acceptCurrent(readConfig().model_key); }
+    try { session.acceptCurrent(configForNode().model_key); }
     catch (error) { session.setStatus("error", error); }
   });
-  addButton("settings", showSettings);
+  const gear = addButton("settings", () => showSettings(local));
+  if (local) { gear.title = t("localTitle"); gear.setAttribute("aria-label", gear.title); }
   const panelWidget = node.addDOMWidget("plamo_panel", "plamo_panel", panel, {
     serialize: false, getValue: () => "", setValue: () => {},
     margin: 4, getMinHeight: () => 146,
@@ -494,7 +669,9 @@ function installNode(node) {
       if (control.value !== value) control.value = value;
     }
     acceptButton.hidden = !String(values.output_text ?? "").trim() || Boolean(inspectState(values));
-    const message = status.kind === "error" ? errorMessage(status.error) : t(status.kind);
+    const localLabels = { busy: localPhase, cancelled: "localCancelled", partial: "partialShort" };
+    const message = status.kind === "error" ? errorMessage(status.error) :
+      t((local && localLabels[status.kind]) || status.kind);
     const waiting = currentSession.busy && !currentSession.accepting ? `\n${t("pending")}` : "";
     const details = [message + waiting, ...status.warnings].filter(Boolean).join("\n");
     let summary = details;
@@ -505,11 +682,20 @@ function installNode(node) {
   }
   const session = new TranslationSession({
     read, writeText: (value) => write("output_text", value), writeState: (value) => write("translation_state", value),
-    request: (body) => requestJson("translate", body), notify: render,
+    request: ({token, ...body}) => {
+      if (!local) return requestJson("translate", {...body, token});
+      localPhase = "preparing";
+      session.emit();
+      return requestJson("local/translate", body, phase => {
+        if (!session.accepting || session.disposed) return;
+        const label = {downloading: "downloading", loading: "loading", translating: "busy"}[phase];
+        if (label) { localPhase = label; session.emit(); }
+      });
+    }, notify: render,
     currentContext: () => {
       const graph = node.graph;
       const root = app.rootGraph ?? app.graph;
-      return { scope: graph, configRevision,
+      return { scope: graph, configRevision: revisions[local ? "local" : "studio"],
         attached: Boolean(graph && (graph.rootGraph ?? graph) === root && graph.getNodeById(node.id) === node) };
     },
   });
@@ -518,10 +704,11 @@ function installNode(node) {
     notify: () => { if (String(read().source_text).trim()) showStatus(t("liveWaiting")); else session.restore(); },
     run: async () => {
       if (guardLinks()) return;
-      const config = readConfig();
+      const config = configForNode();
       const requestId = globalThis.crypto?.randomUUID?.() ?? `plamo-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const result = await session.translate({ config, token: apiToken, requestId });
       if (result.applied) translationConfig = JSON.stringify(config);
+      if (local && session.status.error === result.error && ["LOCAL_DEPS", "LOCAL_MISSING"].includes(result.error?.code)) showSettings(true);
     },
   });
   const observe = () => {
@@ -576,7 +763,7 @@ function installNode(node) {
     }
   });
   const controller = {
-    session,
+    session, local,
     restore: () => { live.cancel(); session.restore(); updateLiveButton(); },
     cancelLive: () => live.cancel(),
     dispose() {
@@ -597,13 +784,17 @@ function installNode(node) {
 app.registerExtension({
   name: "PLaMo.PromptTranslator",
   settings: [
+    ...Object.entries(localSettingIds).map(([key, id]) => ({id, name: id, type: "hidden",
+      defaultValue: {model_key: LOCAL_MODEL, max_tokens: 512, timeout_seconds: 180}[key]})),
     { id: settingIds.url, name: t("url"), type: "text", defaultValue: DEFAULT_CONFIG.url },
     { id: settingIds.model_key, name: t("model"), type: "text", defaultValue: "" },
     { id: settingIds.timeout_seconds, name: t("timeout"), type: "number", defaultValue: 60, attrs: { min: 1, max: 600, step: 1 } },
     { id: settingIds.max_tokens, name: t("tokens"), type: "combo", defaultValue: 512,
       options: [256, 512, 1024, 2048].map((value) => ({ text: String(value), value })) },
   ].map((setting) => ({ ...setting, category: ["PLaMo", "Translator", setting.id],
-    telemetry: { trackChanges: false }, onChange: (value, oldValue) => { if (value !== oldValue) settingsChanged(); } })),
+    telemetry: { trackChanges: false }, onChange: (value, oldValue) => {
+      if (value !== oldValue) settingsChanged(Object.values(localSettingIds).includes(setting.id));
+    } })),
   nodeCreated(node) { installNode(node); },
   loadedGraphNode(node) { installNode(node); nodeControllers.get(node)?.restore(); },
   beforeConfigureGraph() {

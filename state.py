@@ -27,7 +27,7 @@ def _check_text(value, label, max_chars, max_bytes, allow_empty=False):
     if len(value) > max_chars or size > max_bytes:
         _fail("INPUT_TOO_LONG", f"{label} exceeds the text limit.")
     if not allow_empty and not value.strip():
-        _fail("INPUT_EMPTY", f"{label} is empty. 翻訳または訳文の入力をしてください。")
+        _fail("INPUT_EMPTY", f"{label} is empty. Translate the source or enter the output text.")
 
 
 def make_state(source_text, target_lang, status="translated", model_key="", source_lang="auto"):
@@ -58,28 +58,28 @@ def validate_output(source_text, target_lang, output_text, translation_state, so
     if target_lang not in LANGUAGES or (source_lang != "auto" and source_lang not in LANGUAGES):
         _fail("INVALID_INPUT", "Choose a supported source and target language.")
     if not isinstance(translation_state, str) or not translation_state:
-        _fail("INVALID_STATE", "Translate first, or choose 'Use current text'. 再翻訳か「現在の訳文を使う」を選択してください。")
+        _fail("INVALID_STATE", "Translate first, or choose 'Use current text'.")
     try:
         if len(translation_state.encode("utf-8")) > MAX_STATE_BYTES:
             _fail("INVALID_STATE", "Saved translation state is too large.")
         state = json.loads(translation_state)
     except (ValueError, RecursionError, UnicodeError):
-        _fail("INVALID_STATE", "Saved translation state is invalid. 訳文を再確認してください。")
+        _fail("INVALID_STATE", "Saved translation state is invalid. Review the translation.")
     if not isinstance(state, dict) or type(state.get("v")) is not int or state["v"] != STATE_VERSION:
-        _fail("INVALID_STATE", "Unknown saved state version. 訳文を再確認してください。")
+        _fail("INVALID_STATE", "Unknown saved state version. Review the translation.")
     if state.get("status") not in ("translated", "manual"):
-        _fail("INVALID_STATE", "This text has not been accepted. 訳文を再確認してください。")
+        _fail("INVALID_STATE", "This text has not been accepted. Review the translation.")
     saved_source_lang = state.get("source_lang", "auto")
     if (not isinstance(state.get("source_snapshot"), str) or state.get("target_lang") not in LANGUAGES
             or (saved_source_lang != "auto" and saved_source_lang not in LANGUAGES)):
         _fail("INVALID_STATE", "Saved source or direction is invalid.")
     if (state["source_snapshot"] != source_text or state["target_lang"] != target_lang
             or saved_source_lang != source_lang):
-        _fail("STALE_RESULT", "Source or direction changed. 再翻訳か「現在の訳文を使う」を選択してください。")
+        _fail("STALE_RESULT", "Source or direction changed. Translate again or choose 'Use current text'.")
     if state["status"] == "translated" and not source_text.strip():
         _fail("INVALID_STATE", "A translated result requires a nonempty source.")
     if state.get("format", PROMPT_FORMAT) != PROMPT_FORMAT:
-        _fail("INVALID_STATE", "Unknown translation format. 訳文を再確認してください。")
+        _fail("INVALID_STATE", "Unknown translation format. Review the translation.")
     if not isinstance(state.get("model_key", ""), str) or len(state.get("model_key", "")) > 200:
         _fail("INVALID_STATE", "Invalid saved model identifier.")
     return state

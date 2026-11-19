@@ -65,7 +65,7 @@ def _has_control(text: str) -> bool:
 def normalize_url(value: Any) -> str:
     """Normalize a literal loopback HTTP origin, optionally followed by /v1."""
     if not isinstance(value, str) or len(value) > 512 or _has_control(value):
-        raise _bad_config("接続先には同じPCのLM StudioのHTTP URLを入力してください。")
+        raise _bad_config("Enter the HTTP URL for LM Studio on the computer running ComfyUI.")
     value = value.strip()
     try:
         parts = urlsplit(value)
@@ -86,7 +86,7 @@ def normalize_url(value: Any) -> str:
         if not 1 <= port <= 65535:
             raise ValueError
     except (ValueError, UnicodeError):
-        raise _bad_config("初期版の接続先はloopbackのHTTP URLのみです。例: http://127.0.0.1:1234") from None
+        raise _bad_config("Use a loopback HTTP URL for LM Studio, such as http://127.0.0.1:1234.") from None
     formatted_host = f"[{address.compressed}]" if address.version == 6 else str(address)
     return f"http://{formatted_host}:{port}"
 
@@ -96,22 +96,22 @@ def parse_config(value: Any) -> Config:
         value = {"url": value.url, "model_key": value.model_key,
                  "timeout_seconds": value.timeout_seconds, "max_tokens": value.max_tokens}
     if not isinstance(value, dict):
-        raise _bad_config("configはJSONオブジェクトで指定してください。")
+        raise _bad_config("config must be a JSON object.")
     if set(value) - {"url", "model_key", "timeout_seconds", "max_tokens"}:
-        raise _bad_config("configに未対応の設定項目があります。")
+        raise _bad_config("config contains an unsupported field.")
     url = normalize_url(value.get("url", DEFAULT_URL))
     key = value.get("model_key", "")
     if not isinstance(key, str) or len(key) > 200 or _has_control(key):
-        raise _bad_config("モデルkeyは制御文字を含まない200文字以下の文字列で指定してください。")
+        raise _bad_config("model_key must be a string of at most 200 characters without control characters.")
     if key != key.strip():
-        raise _bad_config("モデルkeyの前後の空白を除いてください。")
+        raise _bad_config("Remove leading and trailing whitespace from model_key.")
     timeout = value.get("timeout_seconds", 60)
     if (isinstance(timeout, bool) or not isinstance(timeout, (int, float))
             or not math.isfinite(timeout) or not 1 <= timeout <= 600):
-        raise _bad_config("timeoutは1〜600秒で指定してください。")
+        raise _bad_config("timeout_seconds must be between 1 and 600 seconds.")
     tokens = value.get("max_tokens", 512)
     if type(tokens) is not int or tokens not in {256, 512, 1024, 2048}:
-        raise _bad_config("max_tokensは256、512、1024、2048から選択してください。")
+        raise _bad_config("max_tokens must be 256, 512, 1024, or 2048.")
     return Config(url, key, float(timeout), tokens)
 
 
@@ -127,21 +127,21 @@ _LORA_SYNTAX = re.compile(r"<\s*(?:lora|lyco)\s*:", re.IGNORECASE)
 
 def validate_source(source_text: Any, target_lang: Any, source_lang: Any = "auto") -> None:
     if not isinstance(source_text, str):
-        raise TranslationError("INVALID_INPUT", "原文は文字列で指定してください。")
+        raise TranslationError("INVALID_INPUT", "Source text must be a string.")
     if not source_text.strip():
-        raise TranslationError("INPUT_EMPTY", "翻訳する原文を入力してください。")
+        raise TranslationError("INPUT_EMPTY", "Enter the text to translate.")
     try:
         byte_count = len(source_text.encode("utf-8"))
     except UnicodeError:
-        raise TranslationError("INVALID_INPUT", "原文に不正なUnicode文字が含まれています。") from None
+        raise TranslationError("INVALID_INPUT", "The source text contains invalid Unicode.") from None
     if len(source_text) > MAX_SOURCE_CHARS or byte_count > MAX_SOURCE_BYTES:
-        raise TranslationError("INPUT_TOO_LONG", "原文は16,000文字かつUTF-8で64KiB以下にしてください。")
+        raise TranslationError("INPUT_TOO_LONG", "Source text must fit within both limits: 16,000 characters and 64 KiB of UTF-8 data.")
     if target_lang not in LANGUAGES or (source_lang != "auto" and source_lang not in LANGUAGES):
-        raise TranslationError("INVALID_INPUT", "対応する原文の言語と翻訳先を選択してください。")
+        raise TranslationError("INVALID_INPUT", "Choose a supported source and target language.")
     if "<|plamo:" in source_text.lower():
-        raise TranslationError("UNSUPPORTED_SYNTAX", "原文にPLaMo制御トークンを含めることはできません。")
+        raise TranslationError("UNSUPPORTED_SYNTAX", "Remove PLaMo control tokens from the source text.")
     if _UNSUPPORTED_SYNTAX.search(source_text) or _LORA_SYNTAX.search(source_text):
-        raise TranslationError("UNSUPPORTED_SYNTAX", "LoRA、重み、wildcard等を除き、翻訳したい自然文だけを入力してください。")
+        raise TranslationError("UNSUPPORTED_SYNTAX", "Enter only the natural-language text. Remove LoRA tags, prompt weights, and wildcards before translating.")
 
 
 def build_prompt(source_text: str, target_lang: str, source_lang: str = "auto") -> str:
@@ -159,19 +159,19 @@ def _format_prompt(source_text: str, target_lang: str, source_lang: str) -> str:
 
 def validate_token(token: Any) -> str:
     if not isinstance(token, str) or len(token) > 4096:
-        raise _bad_config("API Tokenの形式が不正です。")
+        raise _bad_config("Invalid API token format.")
     token = token.strip()
     if any(ord(char) < 33 or ord(char) > 126 for char in token):
-        raise _bad_config("API Tokenに空白や制御文字を含めないでください。")
+        raise _bad_config("The API token cannot contain whitespace or control characters.")
     return token
 
 
 def _response_error() -> TranslationError:
-    return TranslationError("INVALID_RESPONSE", "LM Studioの応答形式を確認できませんでした。", 502)
+    return TranslationError("INVALID_RESPONSE", "LM Studio returned an unexpected response format.", 502)
 
 
 def _timeout_error() -> TranslationError:
-    return TranslationError("TIMEOUT", "LM Studioの処理が期限を超えました。原文、期限、モデル状態を確認してください。", 504)
+    return TranslationError("TIMEOUT", "LM Studio timed out. Check the source text, timeout, and model status.", 504)
 
 
 def _error_fields(payload: Any) -> tuple[str, str]:
@@ -191,22 +191,22 @@ def _error_fields(payload: Any) -> tuple[str, str]:
 
 def _http_error(status: int, payload: Any, path: str) -> TranslationError:
     if status in {401, 403}:
-        return TranslationError("AUTH_FAILED", "LM StudioのAPI Tokenと権限を確認してください。", 401)
+        return TranslationError("AUTH_FAILED", "Check the LM Studio API token and its permissions.", 401)
     if 300 <= status < 400:
-        return TranslationError("REDIRECT_REJECTED", "LM Studioの接続先がredirectを返しました。直接のloopback URLを指定してください。", 502)
+        return TranslationError("REDIRECT_REJECTED", "LM Studio returned a redirect. Enter its loopback URL directly.", 502)
     code, message = _error_fields(payload)
     if status < 500 and ("context" in code or "context" in message) and any(
             word in code + " " + message for word in ("length", "window", "exceed", "overflow", "limit", "token")):
-        return TranslationError("CONTEXT_LIMIT", "モデルのcontext上限を超えました。原文や出力上限を小さくしてください。", 400)
+        return TranslationError("CONTEXT_LIMIT", "The model's context limit was exceeded. Shorten the source text or reduce the output token limit.", 400)
     if path == "/api/v1/models" and status == 404:
-        return TranslationError("LMSTUDIO_API_UNAVAILABLE", "LM Studioのnative v1 APIを利用できません。LM Studioのバージョンとサーバー設定を確認してください。", 502)
+        return TranslationError("LMSTUDIO_API_UNAVAILABLE", "The LM Studio native v1 API is unavailable. Check the LM Studio version and server settings.", 502)
     if path == "/api/v1/models/load":
         # Only a definite conflict with a known unloading state permits a new
         # load POST. Transport failures and timeouts never enable that retry.
         retryable = status == 409 and code in {"model_unloading", "unload_in_progress"}
-        return TranslationError("LOAD_FAILED", "モデルをロードできませんでした。LM Studioのモデル状態を確認してください。", 502,
+        return TranslationError("LOAD_FAILED", "Could not load the model. Check its status in LM Studio.", 502,
                                 retryable_load=retryable)
-    return TranslationError("LMSTUDIO_REQUEST_FAILED", "LM Studioが要求を受け付けませんでした。モデルとサーバー設定を確認してください。", 502)
+    return TranslationError("LMSTUDIO_REQUEST_FAILED", "LM Studio rejected the request. Check the model and server settings.", 502)
 
 
 class _Client:
@@ -243,12 +243,12 @@ class _Client:
                                             json=payload, timeout=timeout,
                                             allow_redirects=False) as response:
                 if response.content_length is not None and response.content_length > MAX_RESPONSE_BYTES:
-                    raise TranslationError("RESPONSE_TOO_LARGE", "LM Studioの応答が1MiBを超えました。", 502)
+                    raise TranslationError("RESPONSE_TOO_LARGE", "The LM Studio response exceeded 1 MiB.", 502)
                 data = bytearray()
                 async for chunk in response.content.iter_chunked(65536):
                     data.extend(chunk)
                     if len(data) > MAX_RESPONSE_BYTES:
-                        raise TranslationError("RESPONSE_TOO_LARGE", "LM Studioの応答が1MiBを超えました。", 502)
+                        raise TranslationError("RESPONSE_TOO_LARGE", "The LM Studio response exceeded 1 MiB.", 502)
                 try:
                     parsed = json.loads(data.decode("utf-8"), parse_constant=_reject_json_constant)
                 except (ValueError, UnicodeError, RecursionError):
@@ -261,7 +261,7 @@ class _Client:
         except (asyncio.TimeoutError, TimeoutError):
             raise _timeout_error() from None
         except aiohttp.ClientError:
-            raise TranslationError("LMSTUDIO_UNAVAILABLE", "LM Studioへ接続できません。サーバー起動と接続先を確認してください。", 502) from None
+            raise TranslationError("LMSTUDIO_UNAVAILABLE", "Could not connect to LM Studio. Check that the server is running and the URL is correct.", 502) from None
 
 
 def _reject_json_constant(value: str) -> None:
@@ -329,13 +329,13 @@ async def _list_models(client: _Client) -> list[_Model]:
 
 def _selected(models: list[_Model], key: str) -> _Model:
     if not key:
-        raise TranslationError("MODEL_NOT_SELECTED", "モデル一覧を更新してPLaMoモデルを選択してください。", 400)
+        raise TranslationError("MODEL_NOT_SELECTED", "Refresh the model list and select a PLaMo model.", 400)
     for model in models:
         if model.key == key:
             if len(model.instances) > 1:
-                raise TranslationError("AMBIGUOUS_MODEL", "選択モデルに複数のinstanceがあります。LM Studioで一つに整理してください。", 409)
+                raise TranslationError("AMBIGUOUS_MODEL", "Multiple instances of the selected model are loaded. Keep one instance loaded in LM Studio.", 409)
             return model
-    raise TranslationError("MODEL_NOT_FOUND", "選択モデルが見つかりません。モデル一覧を更新してください。", 400)
+    raise TranslationError("MODEL_NOT_FOUND", "The selected model was not found. Refresh the model list.", 400)
 
 
 def _parse_loaded(payload: Any) -> _Instance:
@@ -400,7 +400,13 @@ def _read_completion(payload: dict[str, Any]) -> tuple[str, str]:
     if not isinstance(choices, list) or len(choices) != 1 or not isinstance(choices[0], dict):
         raise _response_error()
     text, reason = choices[0].get("text"), choices[0].get("finish_reason")
-    if (not isinstance(text, str) or not text.strip() or not isinstance(reason, str) or reason not in {"stop", "length"}
+    if not isinstance(reason, str) or reason not in {"stop", "length"}:
+        raise _response_error()
+    return checked_translation(text), reason
+
+
+def checked_translation(text: str) -> str:
+    if (not isinstance(text, str) or not text.strip()
             or "<|plamo:" in text.lower() or len(text) > MAX_OUTPUT_CHARS):
         raise _response_error()
     try:
@@ -408,31 +414,21 @@ def _read_completion(payload: dict[str, Any]) -> tuple[str, str]:
             raise _response_error()
     except UnicodeError:
         raise _response_error() from None
-    return text, reason
+    return text
 
 
-async def _translate_source(client: _Client, instance: _Instance, source: str,
-                            target_lang: str, source_lang: str, warnings: set[str]) -> tuple[str, bool]:
+async def translate_segments(source: str, complete_segment) -> tuple[str, bool]:
     if len(source) > MAX_CHUNK_CHARS:
         source = source.strip()
     if len(source) <= MAX_CHUNK_CHARS:
-        prompt = _format_prompt(source, target_lang, source_lang)
-        max_tokens = client.config.max_tokens
         try:
-            payload = await client.request("POST", "/v1/completions", {
-                "model": instance.id, "prompt": prompt, "temperature": 0,
-                "max_tokens": max_tokens, "stop": STOP_TOKENS, "stream": False,
-            })
+            text, complete = await complete_segment(source)
         except TranslationError as error:
             if error.code != "CONTEXT_LIMIT" or len(source.strip()) < MIN_RETRY_CHARS:
                 raise
         else:
-            text, reason = _read_completion(payload)
-            if reason == "stop" or len(source.strip()) < MIN_RETRY_CHARS:
-                if (instance.context_length is not None
-                        and len(prompt.encode("utf-8")) + max_tokens > instance.context_length):
-                    warnings.add("原文と出力上限がcontextを超える可能性があります。これはbyte数による保守的な目安です。")
-                return text, reason == "stop"
+            if complete or len(source.strip()) < MIN_RETRY_CHARS:
+                return text, complete
 
     source = source.strip()
     if len(source) > MAX_CHUNK_CHARS:
@@ -441,13 +437,13 @@ async def _translate_source(client: _Client, instance: _Instance, source: str,
         # After a cutoff, look for a boundary near the middle so both pieces get smaller.
         start, limit = len(source) // 4, len(source) // 2
     head, separator, tail = _split_source(source, start, limit)
-    left, complete = await _translate_source(client, instance, head, target_lang, source_lang, warnings)
+    left, complete = await translate_segments(head, complete_segment)
     if not complete:
         return left, False
-    right, complete = await _translate_source(client, instance, tail, target_lang, source_lang, warnings)
+    right, complete = await translate_segments(tail, complete_segment)
     joined = left.rstrip() + (separator or " ") + right.lstrip()
     if len(joined) > MAX_OUTPUT_CHARS or len(joined.encode("utf-8")) > MAX_OUTPUT_BYTES:
-        raise TranslationError("OUTPUT_TOO_LONG", "結合した訳文の上限を超えました。原文を短くしてください。")
+        raise TranslationError("OUTPUT_TOO_LONG", "The combined translation exceeds the output limit. Shorten the source text.")
     return joined, complete
 
 
@@ -456,11 +452,24 @@ async def translate(config: Config | dict[str, Any], token: str, source_text: st
     config = parse_config(config)
     validate_source(source_text, target_lang, source_lang)
     if not config.model_key:
-        raise TranslationError("MODEL_NOT_SELECTED", "モデル一覧を更新してPLaMoモデルを選択してください。", 400)
+        raise TranslationError("MODEL_NOT_SELECTED", "Refresh the model list and select a PLaMo model.", 400)
     warnings: set[str] = set()
     async with _Client(config, token) as client:
         instance = await _resolve_instance(client, await _list_models(client))
-        text, complete = await _translate_source(client, instance, source_text, target_lang, source_lang, warnings)
+        async def complete_segment(source):
+            prompt = _format_prompt(source, target_lang, source_lang)
+            payload = await client.request("POST", "/v1/completions", {
+                "model": instance.id, "prompt": prompt, "temperature": 0,
+                "max_tokens": config.max_tokens, "stop": STOP_TOKENS, "stream": False,
+            })
+            text, reason = _read_completion(payload)
+            if ((reason == "stop" or len(source.strip()) < MIN_RETRY_CHARS)
+                    and instance.context_length is not None
+                    and len(prompt.encode("utf-8")) + config.max_tokens > instance.context_length):
+                warnings.add("The source text and output token limit may exceed the model's context window. This is a conservative estimate based on byte length.")
+            return text, reason == "stop"
+
+        text, complete = await translate_segments(source_text, complete_segment)
     return {"status": "translated" if complete else "partial", "text": text,
             "translation_state": make_state(source_text, target_lang, status="translated",
                                             model_key=config.model_key, source_lang=source_lang) if complete else None,
@@ -470,7 +479,7 @@ async def translate(config: Config | dict[str, Any], token: str, source_text: st
 async def unload(config: Config | dict[str, Any], token: str = "") -> dict[str, Any]:
     config = parse_config(config)
     if not config.model_key:
-        raise TranslationError("MODEL_NOT_SELECTED", "解放するモデルを選択してください。", 400)
+        raise TranslationError("MODEL_NOT_SELECTED", "Select the model to unload.", 400)
     async with _Client(config, token) as client:
         model = _selected(await _list_models(client), config.model_key)
         if not model.instances:

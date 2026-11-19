@@ -12,17 +12,17 @@ class PLaMoPromptTranslator:
             "required": {
                 "source_text": ("STRING", {
                     "default": "", "multiline": True, "dynamicPrompts": False,
-                    "socketless": True, "display_name": "Source / 原文",
+                    "socketless": True, "display_name": "Source",
                     "tooltip": "Plain text to translate. Use the Translate button before Queue.",
                 }),
                 "target_lang": (list(LANGUAGES), {
                     "default": "en", "socketless": True,
-                    "display_name": "Translate to / 翻訳先",
+                    "display_name": "Translate to",
                     "tooltip": "Language of the translation.",
                 }),
                 "output_text": ("STRING", {
                     "default": "", "multiline": True, "dynamicPrompts": False,
-                    "socketless": True, "display_name": "Translation / 訳文",
+                    "socketless": True, "display_name": "Translation",
                     "tooltip": "Editable text sent unchanged to the output. No translation runs at Queue time.",
                 }),
                 "translation_state": ("STRING", {
@@ -33,7 +33,7 @@ class PLaMoPromptTranslator:
             "optional": {
                 "source_lang": (["auto", *LANGUAGES], {
                     "default": "auto", "socketless": True,
-                    "display_name": "Source language / 原文の言語",
+                    "display_name": "Source language",
                     "tooltip": "Auto lets PLaMo detect the source language.",
                 }),
             },
@@ -72,9 +72,13 @@ class PLaMoPromptTranslator:
                 raise ValueError("PLaMo INVALID_INPUT: Cannot inspect the node's input links.")
             for name in ("source_text", "target_lang", "output_text", "translation_state", "source_lang"):
                 if isinstance(entry["inputs"].get(name), (list, tuple)):
-                    raise ValueError(
-                        f"PLaMo UNSUPPORTED_LINK: {name} must be entered on this node. "
-                        "初期版はノード内への直接入力に対応しています。"
-                    )
+                    raise ValueError(f"PLaMo UNSUPPORTED_LINK: {name} must be entered on this node. Disconnect its input link.")
         validate_output(source_text, target_lang, output_text, translation_state, source_lang)
         return (output_text,)
+
+
+class PLaMoPromptTranslatorLocal(PLaMoPromptTranslator):
+    DESCRIPTION = (
+        "Translate directly with the local PLaMo model. Translate and Live run in ComfyUI. "
+        "Run sends the reviewed text to connected nodes without loading the translator."
+    )

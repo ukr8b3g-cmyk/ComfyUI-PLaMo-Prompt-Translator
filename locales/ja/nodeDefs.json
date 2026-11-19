@@ -1,0 +1,58 @@
+{
+  "PLaMoPromptTranslator": {
+    "display_name": "PLaMo Prompt Translator",
+    "description": "LM Studioで翻訳します。ワークフローを実行すると、確認した訳文が接続先に渡ります。",
+    "inputs": {
+      "source_text": {
+        "name": "原文",
+        "tooltip": "翻訳する文章を入力します。"
+      },
+      "target_lang": {
+        "name": "翻訳先",
+        "tooltip": "訳文の言語を選びます。"
+      },
+      "output_text": {
+        "name": "訳文",
+        "tooltip": "ワークフローを実行する前に、訳文を確認・編集できます。"
+      },
+      "source_lang": {
+        "name": "原文の言語",
+        "tooltip": "「自動」ではPLaMoが原文の言語を判定します。"
+      }
+    },
+    "outputs": {
+      "0": {
+        "name": "テキスト",
+        "tooltip": "編集内容を含む、確認済みの訳文です。"
+      }
+    }
+  },
+  "PLaMoPromptTranslatorLocal": {
+    "display_name": "PLaMo Prompt Translator (Local)",
+    "description": "ComfyUI内でPLaMoモデルを使って翻訳します。ワークフローを実行すると、確認した訳文が接続先に渡ります。",
+    "inputs": {
+      "source_text": {
+        "name": "原文",
+        "tooltip": "翻訳する文章を入力します。"
+      },
+      "target_lang": {
+        "name": "翻訳先",
+        "tooltip": "訳文の言語を選びます。"
+      },
+      "output_text": {
+        "name": "訳文",
+        "tooltip": "ワークフローを実行する前に、訳文を確認・編集できます。"
+      },
+      "source_lang": {
+        "name": "原文の言語",
+        "tooltip": "「自動」ではPLaMoが原文の言語を判定します。"
+      }
+    },
+    "outputs": {
+      "0": {
+        "name": "テキスト",
+        "tooltip": "編集内容を含む、確認済みの訳文です。"
+      }
+    }
+  }
+}

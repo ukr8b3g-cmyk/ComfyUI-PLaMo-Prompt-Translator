@@ -1,0 +1,58 @@
+{
+  "PLaMoPromptTranslator": {
+    "display_name": "PLaMo Prompt Translator",
+    "description": "Translate with LM Studio. Run sends the reviewed text to connected nodes.",
+    "inputs": {
+      "source_text": {
+        "name": "Source",
+        "tooltip": "Plain text to translate."
+      },
+      "target_lang": {
+        "name": "Translate to",
+        "tooltip": "Language of the translation."
+      },
+      "output_text": {
+        "name": "Translation",
+        "tooltip": "Review or edit this text before running the workflow."
+      },
+      "source_lang": {
+        "name": "Source language",
+        "tooltip": "Auto lets PLaMo detect the source language."
+      }
+    },
+    "outputs": {
+      "0": {
+        "name": "text",
+        "tooltip": "The reviewed translation, including your edits."
+      }
+    }
+  },
+  "PLaMoPromptTranslatorLocal": {
+    "display_name": "PLaMo Prompt Translator (Local)",
+    "description": "Translate with the PLaMo model in ComfyUI. Run sends the reviewed text to connected nodes.",
+    "inputs": {
+      "source_text": {
+        "name": "Source",
+        "tooltip": "Plain text to translate."
+      },
+      "target_lang": {
+        "name": "Translate to",
+        "tooltip": "Language of the translation."
+      },
+      "output_text": {
+        "name": "Translation",
+        "tooltip": "Review or edit this text before running the workflow."
+      },
+      "source_lang": {
+        "name": "Source language",
+        "tooltip": "Auto lets PLaMo detect the source language."
+      }
+    },
+    "outputs": {
+      "0": {
+        "name": "text",
+        "tooltip": "The reviewed translation, including your edits."
+      }
+    }
+  }
+}

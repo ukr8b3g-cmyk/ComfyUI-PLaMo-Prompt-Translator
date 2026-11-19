@@ -2,11 +2,15 @@
 
 import asyncio
 import importlib
+import json
 import os
 from pathlib import Path
+import subprocess
 import sys
+from tempfile import TemporaryDirectory
 import types
 import unittest
+from contextlib import ExitStack
 from unittest.mock import AsyncMock, patch
 
 from aiohttp import web
@@ -37,7 +41,90 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_registration_is_idempotent_without_comfyui(self):
         self.assertFalse(routes.register_routes(self.server_stub))
-        self.assertEqual(len(self.server_stub.routes), 3)
+        self.assertEqual(len(self.server_stub.routes), 4)
+
+    async def test_local_setup_offers_only_missing_dependencies(self):
+        local = importlib.import_module(PACKAGE + ".local_backend")
+        with patch.object(local, "roots", return_value=[Path("models/LLM")]), \
+             patch.object(local, "missing_packages", return_value=["numba"]), \
+             patch.object(local.importlib.util, "find_spec", return_value=object()):
+            response = await self.client.post(BASE + "/local/setup", json={})
+            data = await response.json()
+        self.assertEqual(data["missing"], ["numba"])
+        flags = ["-s"] if sys.flags.no_user_site else []
+        self.assertEqual(data["install_command"], local.shell_command([sys.executable, *flags, "-m", "pip", "install", "numba"]))
+
+    def test_install_command_targets_the_running_interpreter_without_pip(self):
+        local = importlib.import_module(PACKAGE + ".local_backend")
+        python = "/opt/Comfy UI/user's venv/bin/python"
+        uv = "/opt/Comfy UI/uv"
+        with patch.object(local.sys, "executable", python), patch.object(local.os, "name", "posix"), \
+             patch.object(local.shutil, "which", return_value=uv), \
+             patch.object(local.importlib.util, "find_spec", return_value=None):
+            command, needs_uv = local.install_command(["numba"])
+            self.assertEqual(local.shlex.split(command), [uv, "pip", "install", "--python", python, "numba"])
+            self.assertFalse(needs_uv)
+        with patch.object(local.sys, "executable", "C:/User's Env/python.exe"), \
+             patch.object(local.os, "name", "nt"), patch.object(local.shutil, "which", return_value=None), \
+             patch.object(local.importlib.util, "find_spec", side_effect=lambda name: name == "ensurepip" or None):
+            command, needs_uv = local.install_command(["numba"])
+            self.assertEqual(len(command.splitlines()), 2)
+            self.assertTrue(all("'C:/User''s Env/python.exe'" in line for line in command.splitlines()))
+            self.assertIn("-m ensurepip", command)
+            self.assertFalse(needs_uv)
+            with patch.object(local.importlib.util, "find_spec", return_value=None):
+                self.assertEqual(local.install_command(["numba"]), (local.shell_command(["uv", "pip", "install", "--python", local.sys.executable, "numba"]), True))
+                self.assertEqual(local.install_command([]), ("", False))
+
+    @unittest.skipUnless(os.name == "nt", "uses both Windows command shells")
+    def test_windows_pasted_commands_preserve_arguments_in_both_shells(self):
+        local = importlib.import_module(PACKAGE + ".local_backend")
+        shells = (["cmd.exe", "/d", "/q", "/v:on"], ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "-"])
+        with TemporaryDirectory() as tmp:
+            script = Path(tmp, "echo_args.py")
+            script.write_text("import json, sys\nprint('ARGS=' + json.dumps(sys.argv[1:]))", encoding="utf-8")
+            for value in ["numba", "C:/User's Env/%PATH%/!TEMP!/$env/&/model"]:
+                command = local.shell_command([sys.executable, "-B", script.name, value])
+                for shell in shells:
+                    with self.subTest(shell=shell[0], value=value):
+                        run = subprocess.run(shell, input=command + "\n", text=True, capture_output=True, cwd=tmp, timeout=15)
+                        self.assertEqual(run.returncode, 0, run.stderr)
+                        self.assertIn("ARGS=" + json.dumps([value]), run.stdout)
+
+    async def test_local_rejects_connection_credentials(self):
+        response = await self.client.post(BASE + "/local/translate", json={"token": "test"})
+        self.assertEqual(response.status, 400)
+
+    async def test_local_first_translate_streams_progress_and_reuses_loaded_model(self):
+        local = importlib.import_module(PACKAGE + ".local_backend")
+        body = {"config": {"model_key": local.MODEL}, "source_text": "窓辺の猫", "target_lang": "en"}
+        async def phases():
+            response = await self.client.post(BASE + "/local/translate", json=body,
+                                              headers={"Accept": "application/x-ndjson"})
+            records = [json.loads(line) for line in (await response.text()).splitlines()]
+            self.assertEqual(records[-1]["result"]["text"], "A cat by the window")
+            return [row["phase"] for row in records[:-1]]
+        def load(key):
+            local._loaded = (key, None, None)
+            return local._loaded[1:]
+        with ExitStack() as s:
+            for name, value in {"_loaded": None, "missing_packages": lambda: [], "model_folders": lambda: {},
+                                "load": load, "generate": lambda *args: ("A cat by the window", True)}.items():
+                s.enter_context(patch.object(local, name, value))
+            download = s.enter_context(patch.object(local, "download"))
+            self.assertEqual(await phases(), ["downloading", "loading", "translating"])
+            self.assertEqual(await phases(), ["translating"])
+            download.assert_called_once_with()
+
+    async def test_local_missing_dependencies_or_custom_model_do_not_download(self):
+        local = importlib.import_module(PACKAGE + ".local_backend")
+        for missing, key, expected in [(["numba"], local.MODEL, "LOCAL_DEPS"), ([], "custom", "LOCAL_MISSING")]:
+            with patch.object(local, "missing_packages", return_value=missing), \
+                 patch.object(local, "model_folders", return_value={}), patch.object(local, "download") as download:
+                response = await self.client.post(BASE + "/local/translate", json={
+                    "config": {"model_key": key}, "source_text": "窓辺の猫", "target_lang": "en"})
+                self.assertEqual((await response.json())["code"], expected)
+                download.assert_not_called()
 
     async def test_models_token_precedence_and_no_secret_output(self):
         result = {"models": [], "selected_model_status": "not_selected"}

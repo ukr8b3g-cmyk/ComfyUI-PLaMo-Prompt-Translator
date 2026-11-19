@@ -2,6 +2,7 @@
 
 import ast
 import importlib.util
+import json
 from pathlib import Path
 import sys
 import types
@@ -43,30 +44,52 @@ class PackageAcceptanceTests(unittest.TestCase):
         server.PromptServer = type("PromptServer", (), {"instance": instance})
         return server
 
-    def test_comfyui_import_registers_exactly_one_node_and_three_routes(self):
+    def test_comfyui_import_registers_both_nodes_and_routes(self):
         # The host is a fixture; its route table is the actual aiohttp type.
         routes = web.RouteTableDef()
         instance = types.SimpleNamespace(routes=routes, app=types.SimpleNamespace(on_cleanup=[]))
         server = self.fake_server(instance)
         package = self.load_package(server)
-        self.assertEqual(set(package.NODE_CLASS_MAPPINGS), {"PLaMoPromptTranslator"})
-        self.assertEqual(set(package.NODE_DISPLAY_NAME_MAPPINGS), {"PLaMoPromptTranslator"})
+        self.assertNotIn(self.package_name + ".local_cuda", sys.modules)
+        self.assertEqual(set(package.NODE_CLASS_MAPPINGS), {"PLaMoPromptTranslator", "PLaMoPromptTranslatorLocal"})
+        self.assertEqual(set(package.NODE_DISPLAY_NAME_MAPPINGS), set(package.NODE_CLASS_MAPPINGS))
         self.assertTrue(package.NODE_DISPLAY_NAME_MAPPINGS["PLaMoPromptTranslator"])
         self.assertEqual({route.path for route in routes}, {
             "/plamo_translator/v1/models",
             "/plamo_translator/v1/translate",
             "/plamo_translator/v1/unload",
+            "/plamo_translator/v1/local/{action:setup|translate|download|unload}",
         })
         for route in routes:
             self.assertEqual(route.method, "POST")
             self.assertTrue(callable(route.handler))
         package.routes.register_routes(instance)
-        self.assertEqual(len(routes), 3, "Registering again must not duplicate routes")
+        self.assertEqual(len(routes), 4, "Registering again must not duplicate routes")
 
     def test_import_without_initialized_server_still_exposes_offline_node(self):
         package = self.load_package(self.fake_server(None))
         node_type = package.NODE_CLASS_MAPPINGS["PLaMoPromptTranslator"]
         self.assertEqual(node_type.RETURN_TYPES, ("STRING",))
+
+    def test_translated_node_definitions_preserve_workflow_keys(self):
+        package = self.load_package(self.fake_server(None))
+        for locale in ("en", "ja"):
+            path = ROOT / "locales" / locale / "nodeDefs.json"
+            definitions = json.loads(path.read_text(encoding="utf-8"))
+            for node_id, node_type in package.NODE_CLASS_MAPPINGS.items():
+                inputs = node_type.INPUT_TYPES()
+                visible = {key: options for key, (_, options) in
+                           (inputs["required"] | inputs["optional"]).items() if not options.get("hidden")}
+                labels = definitions[node_id]["inputs"]
+                self.assertEqual(set(labels), set(visible))
+                for key, options in visible.items():
+                    self.assertTrue(options["display_name"].isascii())
+                    if locale == "en":
+                        self.assertEqual(labels[key]["name"], options["display_name"])
+                    else:
+                        self.assertFalse(labels[key]["name"].isascii())
+                self.assertEqual(node_type.RETURN_NAMES, ("text",))
+                self.assertEqual(definitions[node_id]["outputs"]["0"]["name"], "text" if locale == "en" else "テキスト")
 
     def test_web_directory_points_to_bundled_frontend(self):
         package = self.load_package(self.fake_server(None))
@@ -77,10 +100,12 @@ class PackageAcceptanceTests(unittest.TestCase):
         self.assertGreater((web / "plamo.js").stat().st_size, 0)
 
     def test_runtime_does_not_import_forge_or_extra_llm_libraries(self):
-        # A first-version installation must use the host's aiohttp and stdlib.
+        # Startup and the LM Studio path must use the host's aiohttp and stdlib.
         forbidden = {"gradio", "modules", "openai", "lmstudio", "httpx", "transformers", "llama_cpp", "torch"}
         violations = []
         for path in sorted(ROOT.glob("*.py")):
+            if path.name in {"local_backend.py", "local_cuda.py"}:
+                continue  # Only the opt-in Local implementation uses PyTorch and Transformers.
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             for node in ast.walk(tree):
                 imports = []

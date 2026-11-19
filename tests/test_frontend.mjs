@@ -280,7 +280,7 @@ async function adapterHarness(hasRandomUUID = true) {
       reject });
     return promise;
   } };
-  const context = createContext({ document, navigator: { language: "en-US" },
+  const context = createContext({ document, navigator: { language: "ja-JP" },
     TextEncoder, AbortController, setTimeout, clearTimeout,
     crypto: hasRandomUUID ? { randomUUID: () => "adapter-request" } : {} });
   const state = new SourceTextModule(await readFile("web/state.mjs", "utf8"), { context, identifier: "state.mjs" });
@@ -383,6 +383,20 @@ await (${check.toString()})(harness);
   assert.equal(result.status, 0, [result.error?.message, result.stdout, result.stderr].filter(Boolean).join("\n"));
 }
 
+test("both panels use Japanese only when ComfyUI explicitly selects Japanese", () => {
+  runAdapterCase(async (h) => {
+    for (const [locale, label] of [[undefined, "Translate"], ["auto", "Translate"], ["en", "Translate"],
+      ["fr", "Translate"], ["ja", "翻訳"], ["ja-JP", "翻訳"]]) {
+      await h.app.extensionManager.setting.set("Comfy.Locale", locale);
+      for (const id of ["PLaMoPromptTranslator", "PLaMoPromptTranslatorLocal"]) {
+        const node = h.makeNode({}, id);
+        h.extension.nodeCreated(node);
+        assert.equal(h.action(node, "translate").textContent, label);
+      }
+    }
+  });
+});
+
 test("manual and Live translation work when LAN HTTP does not expose randomUUID", () => {
   runAdapterCase(async (h) => {
     const node = h.makeNode(); h.extension.nodeCreated(node);
@@ -454,8 +468,7 @@ test("live adapter: restored ON is idle, completed toggle avoids repeat, removal
 test("entry adapter: registration keeps standard inputs and excludes transient controls from serialization", () => {
   runAdapterCase(async (h) => {
     assert.equal(h.extension.name, "PLaMo.PromptTranslator");
-    assert.equal(h.extension.settings.length, 4);
-    assert.deepEqual(Array.from(h.extension.settings, (setting) => setting.id),
+    assert.deepEqual(Array.from(h.extension.settings, (setting) => setting.id).filter(id => id.startsWith("PLaMo.Translator.")),
       ["PLaMo.Translator.URL", "PLaMo.Translator.Model", "PLaMo.Translator.Timeout", "PLaMo.Translator.MaxTokens"]);
     const other = h.makeNode({}, "AnotherNode"); h.extension.nodeCreated(other);
     assert.equal(other.widgets.length, 5);

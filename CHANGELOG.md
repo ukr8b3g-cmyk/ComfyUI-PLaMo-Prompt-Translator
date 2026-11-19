@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.0
+
+- Added PLaMo Prompt Translator (Local) with first-use model download, dependency setup guidance, Live translation and CUDA Graph acceleration on supported GPUs.
+- Both nodes use English by default for input and output labels, validation, API errors and backend warnings. Japanese labels use ComfyUI’s locale files. The panel uses Japanese only when ComfyUI’s locale is Japanese.
+- Existing workflow node IDs, input keys and the `text` output are preserved.
+
 ## 1.1.0
 
 - Added opt-in Live translation. It waits 800 ms after typing stops and starts after IME composition is complete.

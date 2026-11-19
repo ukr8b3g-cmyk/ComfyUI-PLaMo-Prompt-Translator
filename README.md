@@ -2,7 +2,7 @@
 
 # PLaMo Prompt Translator for ComfyUI
 
-Translate image prompts and plain text in ComfyUI using **PLaMo 3 Translate 0.8B** and a local LM Studio server. Edit the source and translation side by side, then send the result to another node as a **STRING**.
+Translate image prompts and plain text with **PLaMo 3 Translate 0.8B** in ComfyUI or through LM Studio. Edit the source and translation side by side, then send the result to another node as a **STRING**.
 
 ![ComfyUI translator with Japanese source and English translation side by side](docs/images/comfyui-translator.png)
 
@@ -15,11 +15,21 @@ cd custom_nodes
 git clone https://github.com/ukr8b3g-cmyk/ComfyUI-PLaMo-Prompt-Translator.git
 ```
 
-For a manual install, download **Source code (zip)** from [the latest release](https://github.com/ukr8b3g-cmyk/ComfyUI-PLaMo-Prompt-Translator/releases/latest). Extract the folder into `custom_nodes` and name it `ComfyUI-PLaMo-Prompt-Translator`. Its `__init__.py` should be directly inside that folder. Restart ComfyUI, reload the browser tab, and search for **PLaMo Prompt Translator** under **PLaMo / Text**.
+For a manual install, download the [main branch ZIP](https://github.com/ukr8b3g-cmyk/ComfyUI-PLaMo-Prompt-Translator/archive/refs/heads/main.zip). Extract the folder into `custom_nodes` and name it `ComfyUI-PLaMo-Prompt-Translator`. Its `__init__.py` should be directly inside that folder. Restart ComfyUI, reload the browser tab, and search for **PLaMo Prompt Translator** under **PLaMo / Text**.
 
-The node uses the Python environment and `aiohttp` supplied by ComfyUI. It requires Python 3.10 or newer and no extra pip packages. Install LM Studio and download the model separately.
+The LM Studio node uses ComfyUI's Python environment and `aiohttp`. It requires Python 3.10 or newer.
 
-## Install LM Studio and download PLaMo
+### Use the Local node
+
+**New in 1.2.0.** Choose **PLaMo Prompt Translator (Local)** to translate inside ComfyUI without starting LM Studio. It uses PFN’s Transformers model, `pfnet/plamo-3-translate-0.8b`. The default download creates `ComfyUI/models/LLM/plamo-3-translate-0.8b/` with the weights (`model.safetensors`), tokenizer, configuration and model code. Keep this folder intact to translate offline on later runs.
+
+1. Add **PLaMo Prompt Translator (Local)**, enter some text and press **Translate**. If the default model is missing, the node downloads the [official BF16 model](https://huggingface.co/pfnet/plamo-3-translate-0.8b) (1.78 GB) to `ComfyUI/models/LLM/`, loads it and translates in the same operation. The status line shows each stage. You can also select an existing model folder in the gear menu.
+2. Local inference uses PyTorch, Transformers, Accelerate and Numba. If any are missing, the gear menu lists them. Click **Copy install command**. When **✓ Command copied** appears, paste the command into Command Prompt or PowerShell on Windows or a terminal on macOS/Linux **on the computer running ComfyUI**, then press Enter. The command targets that ComfyUI instance's Python, including Portable's bundled Python or a Desktop/venv installation. If the command calls for `uv`, you can use Desktop's built-in terminal. After installation finishes, restart ComfyUI and click **Translate**. The gear menu shows package and model status separately.
+3. Use **Translate** or enable **Live**. The first translation loads the model and subsequent translations reuse it. Choose **Unload model** in the gear menu to free it. **Run** sends the reviewed text even after unloading.
+
+The panel uses Japanese when ComfyUI’s language is set to Japanese. Auto and other locales use English. Choose the translation languages separately in the panel.
+
+## Install LM Studio and download PLaMo (LM Studio node only)
 
 1. Download and run the desktop installer for your OS from the [official LM Studio download page](https://lmstudio.ai/download). On Windows, choose **Download LM Studio for Windows** under **Download LM Studio**.
 2. In LM Studio, open **Discover** and search for `pfnet/plamo-3-translate-0.8b-GGUF`. Choose the **pfnet** result and download `plamo-3-translate-0.8b-Q4_K_M.gguf` (about 573 MB). [PFN model card](https://huggingface.co/pfnet/plamo-3-translate-0.8b-GGUF) · [LM Studio model download guide](https://lmstudio.ai/docs/app/basics/download-model)
@@ -91,7 +101,7 @@ PLaMo 3 Translate supports **53 language choices**. Simplified and Traditional C
 
 # 日本語
 
-**PLaMo 3 Translate 0.8B** を LM Studio で動かし、ComfyUI から画像生成プロンプトや自然文を翻訳するノードです。原文と訳文を左右に並べ、訳文を編集してから **STRING** として次のノードへ渡せます。
+**PLaMo 3 Translate 0.8B** をComfyUI内またはLM Studioで動かし、画像生成プロンプトや自然文を翻訳できます。原文と訳文を左右に並べ、訳文を編集してから **STRING** として次のノードへ渡せます。
 
 ![左に日本語原文、右に英訳を表示したComfyUIの翻訳ノード](docs/images/comfyui-translator.png)
 
@@ -104,11 +114,21 @@ cd custom_nodes
 git clone https://github.com/ukr8b3g-cmyk/ComfyUI-PLaMo-Prompt-Translator.git
 ```
 
-手動で入れる場合は、[最新リリース](https://github.com/ukr8b3g-cmyk/ComfyUI-PLaMo-Prompt-Translator/releases/latest) から **Source code (zip)** をダウンロードします。展開したフォルダーを `custom_nodes` に入れ、名前を `ComfyUI-PLaMo-Prompt-Translator` にします。フォルダー直下に `__init__.py` があることを確認してください。ComfyUIを再起動してブラウザーを再読み込みし、**PLaMo / Text** の **PLaMo Prompt Translator** を追加します。
+手動で入れる場合は、[mainブランチのZIP](https://github.com/ukr8b3g-cmyk/ComfyUI-PLaMo-Prompt-Translator/archive/refs/heads/main.zip)をダウンロードします。展開したフォルダーを `custom_nodes` に入れ、名前を `ComfyUI-PLaMo-Prompt-Translator` にします。フォルダー直下に `__init__.py` があることを確認してください。ComfyUIを再起動してブラウザーを再読み込みし、**PLaMo / Text** の **PLaMo Prompt Translator** を追加します。
 
-Python 3.10以降のComfyUI環境で、同梱の `aiohttp` を使います。追加のpipインストールは不要です。LM Studioとモデルは別途入手してください。
+LM Studio版はPython 3.10以降のComfyUI環境で、同梱の `aiohttp` を使います。
 
-## LM StudioとPLaMoを準備
+### Local版を使う
+
+**1.2.0で追加。** LM Studioを起動せずに翻訳するには、**PLaMo Prompt Translator (Local)** を選びます。使うモデルはPFN公式のTransformers版 `pfnet/plamo-3-translate-0.8b` です。ダウンロード先の `ComfyUI/models/LLM/plamo-3-translate-0.8b/` には、重み `model.safetensors` のほか、トークナイザー・設定・モデルコードが入ります。フォルダーごと残しておくと、次回からオフラインでも使えます。
+
+1. **PLaMo Prompt Translator (Local)** に原文を入力して **翻訳** を押します。標準モデルがなければ[公式BF16モデル](https://huggingface.co/pfnet/plamo-3-translate-0.8b)（1.78 GB）を `ComfyUI/models/LLM/` にダウンロードし、そのまま読み込んで翻訳します。進み具合はノード下部に表示されます。配置済みのモデルは歯車から選択できます。
+2. Local版はPyTorch・Transformers・Accelerate・Numbaを使います。不足分は歯車の「インストール待ち」に表示されます。**インストールコマンドをコピー** を押して **✓ コマンドをコピーしました** と出たら、**ComfyUIが動いているPC** のコマンドプロンプトまたはPowerShell（macOS・Linuxはターミナル）に貼り付けてEnterを押します。コマンドはPortableの同梱Python、Desktopやvenvなど、起動中のComfyUIのPythonを自動で指定します。`uv` を使う場合、Desktopでは内蔵ターミナルも使えます。インストールが終わったらComfyUIを再起動し、**翻訳** を押してください。歯車ではパッケージの導入状況とモデルの読み込み状態をそれぞれ確認できます。
+3. **翻訳** または **自動翻訳（Live）** を使います。モデルは初回翻訳時にロードされ、以降は再利用されます。歯車の **モデルを解放** でアンロードした後も、**Run** で確認済みの訳文を次のノードに渡せます。
+
+パネルを日本語で使うには、ComfyUIの表示言語で日本語を選びます。Autoや他の言語では英語表示です。原文と訳文の言語はパネル内で個別に選べます。
+
+## LM StudioとPLaMoを準備（LM Studio版のみ）
 
 1. [LM Studio公式ダウンロードページ](https://lmstudio.ai/download) で、使っているOSのデスクトップ版インストーラーをダウンロードして実行します。Windowsでは **Download LM Studio** の **Download LM Studio for Windows** を選びます。
 2. LM Studioの **Discover** を開き、`pfnet/plamo-3-translate-0.8b-GGUF` を検索します。配布元が **pfnet** のモデルを選び、`plamo-3-translate-0.8b-Q4_K_M.gguf`（約573 MB）をダウンロードします。[PFNのモデルページ](https://huggingface.co/pfnet/plamo-3-translate-0.8b-GGUF) · [LM Studio公式のモデル取得手順](https://lmstudio.ai/docs/app/basics/download-model)
