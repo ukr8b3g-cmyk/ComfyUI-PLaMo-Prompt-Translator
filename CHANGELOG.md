@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.1
+
+- The Local node checks for Transformers 4.56.0 or newer before downloading or loading PLaMo. If an older version is installed, Local settings show the installed and required versions and provide a copyable update command for the running ComfyUI environment.
+- Verified CPU translation with the official model on Transformers 4.56.0 and 5.23.0, and the update guidance on 4.50.3.
+
 ## 1.2.0
 
 - Added PLaMo Prompt Translator (Local) with first-use model download, dependency setup guidance, Live translation and CUDA Graph acceleration on supported GPUs.

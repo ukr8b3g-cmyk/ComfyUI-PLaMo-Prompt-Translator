@@ -2,7 +2,7 @@
 
 from .nodes import PLaMoPromptTranslator, PLaMoPromptTranslatorLocal
 
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 NODE_CLASS_MAPPINGS = {"PLaMoPromptTranslator": PLaMoPromptTranslator,
                        "PLaMoPromptTranslatorLocal": PLaMoPromptTranslatorLocal}
 NODE_DISPLAY_NAME_MAPPINGS = {"PLaMoPromptTranslator": "PLaMo Prompt Translator",
