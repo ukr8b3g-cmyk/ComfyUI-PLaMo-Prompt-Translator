@@ -110,6 +110,8 @@ The panel uses Japanese when ComfyUI's display language is Japanese. Choose sour
 
 ## Install LM Studio and download PLaMo (LM Studio node only)
 
+![PLaMo Prompt Translator connected to LM Studio, showing the Japanese source and English translation](docs/images/comfyui-translator.png)
+
 1. Download and run the desktop installer for your OS from the [official LM Studio download page](https://lmstudio.ai/download). On Windows, choose **Download LM Studio for Windows** under **Download LM Studio**.
 2. In LM Studio, open **Discover** and search for `pfnet/plamo-3-translate-0.8b-GGUF`. Choose the **pfnet** result and download `plamo-3-translate-0.8b-Q4_K_M.gguf` (about 573 MB). [PFN model card](https://huggingface.co/pfnet/plamo-3-translate-0.8b-GGUF) · [LM Studio model download guide](https://lmstudio.ai/docs/app/basics/download-model)
 
@@ -302,6 +304,8 @@ hf download pfnet/plamo-3-translate-0.8b --revision c5a33c561bc6a4fbac38c3460bbb
 パネルを日本語にするには、ComfyUIの表示言語で日本語を選びます。原文と訳文の言語はパネル内で個別に選べます。
 
 ## LM StudioとPLaMoを準備（LM Studio版のみ）
+
+![LM Studio版のPLaMo Prompt Translatorで日本語の原文と英訳を表示した画面](docs/images/comfyui-translator.png)
 
 1. [LM Studio公式ダウンロードページ](https://lmstudio.ai/download) で、使っているOSのデスクトップ版インストーラーをダウンロードして実行します。Windowsでは **Download LM Studio** の **Download LM Studio for Windows** を選びます。
 2. LM Studioの **Discover** を開き、`pfnet/plamo-3-translate-0.8b-GGUF` を検索します。配布元が **pfnet** のモデルを選び、`plamo-3-translate-0.8b-Q4_K_M.gguf`（約573 MB）をダウンロードします。[PFNのモデルページ](https://huggingface.co/pfnet/plamo-3-translate-0.8b-GGUF) · [LM Studio公式のモデル取得手順](https://lmstudio.ai/docs/app/basics/download-model)
